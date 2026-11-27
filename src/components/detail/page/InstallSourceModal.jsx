@@ -1,4 +1,5 @@
 import GogIcon from '../../ui/GogIcon.jsx'
+import { useEscapeKey } from '../../../hooks/useEscapeKey.js'
 
 // ── Install source picker ────────────────────────────────────────────────────
 //
@@ -35,6 +36,8 @@ export default function InstallSourceModal({
   onSelect,
   onClose,
 }) {
+  useEscapeKey(() => onClose?.(), open && sources.length > 0)
+
   if (!open || sources.length === 0) return null
 
   return (

@@ -1,7 +1,7 @@
 import { getGameTitle } from '../../utils/gameDisplay.js'
 import { groupGamesByCollection, UNCATEGORIZED_ID } from '../../hooks/useCollections.js'
 
-// The 200px library side panel. Was a flat list of titles inline in App.jsx;
+// The 300px library side panel. Was a flat list of titles inline in App.jsx;
 // now groups by collection with expand/collapse and per-group counts.
 //
 // Collections only apply to the local library, so in catalog/wishlist mode this

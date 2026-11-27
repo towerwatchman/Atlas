@@ -1,3 +1,5 @@
+import { useEscapeKey } from '../../hooks/useEscapeKey.js'
+
 // Shared confirmation/alert modal, replacing
 // the native window.confirm/alert dialogs so Add / Remove / Delete actions
 // all use consistent in-app modals. Two shapes:
@@ -19,6 +21,8 @@ export default function ConfirmModal({
   onConfirm,
   onCancel,
 }) {
+  useEscapeKey(() => { if (!busy) onCancel?.() }, open)
+
   if (!open) return null
 
   const confirmClass =

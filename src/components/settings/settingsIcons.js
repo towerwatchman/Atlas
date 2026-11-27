@@ -61,6 +61,13 @@ export const settingsIcons = [
     viewBox: "0 0 24 24",
   },
   {
+    name: "Shortcuts",
+    icon: "shortcuts_icon",
+    // Keyboard outline: this section is where key bindings are edited.
+    path: "M2 6a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6zm3 3h2v2H5V9zm3 0h2v2H8V9zm3 0h2v2h-2V9zm3 0h2v2h-2V9zm3 0h2v2h-2V9zM5 13h2v2H5v-2zm3 0h2v2H8v-2zm3 0h8v2h-8v-2z",
+    viewBox: "0 0 24 24",
+  },
+  {
     name: "Search",
     hidden: true,
     icon: "search_icon",

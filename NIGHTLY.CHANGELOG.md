@@ -6,7 +6,17 @@ in [LEGACY.CHANGELOG.md](./LEGACY.CHANGELOG.md). From 0.9.14 a build is named fo
 the release it heads to; earlier labels mix the cycle and the candidate, as
 [legacy-tag-history.md](./legacy-tag-history.md) records.
 
-## 0.9.5-nightly.525
+## 0.9.16-nightly.526
+
+- **feat(downloads)**: newest-first queue, collapsible sections and drag reorder.
+- **feat(shortcuts)**: configurable bindings with defaults for views, search, sidebars and Settings.
+- **feat(navigation)**: Back and Forward view history, plus a Downloads view in the side rail.
+- **changed(navigation)**: reordered side rail, sticky active bar and 300px game list.
+- **feat(shortcuts)**: Settings shortcuts switch tabs in an open Settings window.
+- **feat(settings)**: game list and filter sidebar visibility persist across views and restarts.
+- **changed(themes)**: accent strip follows the active theme's setting.
+
+## 0.9.15-nightly.525
 
 - **changed**: The "Release Date" sort and the "Recently released" saved filter are replaced by a single "New Releases" sort in Browse and Library. It orders titles by when they appeared in the Atlas catalog, which doesn't get rewritten.
 - **feat**: New "Only new tiles" filter in the sidebar (Browse and Library):
@@ -17,29 +27,29 @@ the release it heads to; earlier labels mix the cycle and the candidate, as
 - **fix**: A failed background index rebuild no longer leaves Browse stuck on the "building" state; the progress UI clears and the index stays stale for the next launch.
 - **fix**: Schema setup no longer aborts the whole process when a single index statement fails.
 
-## 0.9.5-nightly.524
+## 0.9.15-nightly.524
 
 - **fix**: F95 captcha detection now looks for the hCaptcha container the gate page owns. The old check read inside hCaptcha's iframe, which a page script cannot reach. It never fired.
 - **fix**: after the resolver hands the window over for a captcha, a failed-check reload no longer restarts the auto-clicking, and the resolver window no longer opens a DevTools console over the page.
 - **feat**: New "Do not auto-resolve masked link" toggle in Settings > Accounts, right below "Do not hide resolve window". When on, the resolver opens the window and leaves every click to you, with a 5-minute window to finish.
 
-## 0.9.5-nightly.523
+## 0.9.15-nightly.523
 
 - **fix**: F95 download gate no longer auto-clicks when a captcha is present. The window opens so you can solve it, with a 5-minute window to do so.
 
-## 0.9.5-nightly.522
+## 0.9.15-nightly.522
 
 - **feat**: New "Do not hide resolve window" toggle in Settings > Accounts. When on, the resolve window stays open so you can watch it and step in if it stalls.
 - **changed**: Stuck link resolves now time out in 2 minutes instead of 5.
 
-## 0.9.5-nightly.521
+## 0.9.15-nightly.521
 - **enhancement**: improve LewdCorner account membership checking stability.
 
-## 0.9.5-nightly.520
+## 0.9.15-nightly.520
 
 - **fix**: LewdCorner account check regex change due to site change (#474).
 
-## 0.9.5-nightly.519
+## 0.9.15-nightly.519
 
 - **fix**: F95 or LewdCorner previews now display correctly in Download mode when F95/LC is set as the priority source. We previously add a new table for f95zone/LC screens for both Stream and Download modes (seem to be empty), but only Stream mode had a fallback to the old screen data when the new data is empty — Download mode does not and will fail f95/LC and fallback to Steam instead -> this change will fix this behavior (#467).
 - **fix**: LewdCorner account check regex change due to site change (#469).

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import TagChipInput from '../tags/TagChipInput.jsx'
 import { useKnownTags } from '../../hooks/useKnownTags.js'
+import { useEscapeKey } from '../../hooks/useEscapeKey.js'
 
 /**
  * Add and remove tags across every game in a collection.
@@ -33,6 +34,8 @@ export default function BulkTagModal({
     setResult(null)
     setBusy(false)
   }, [open])
+
+  useEscapeKey(onClose, open)
 
   if (!open) return null
 

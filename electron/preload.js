@@ -65,6 +65,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
     console.log("Invoking closeWindow");
     return ipcRenderer.invoke("close-window");
   },
+  quitApp: () => ipcRenderer.invoke("quit-app"),
   selectFile: () => {
     console.log("Invoking selectFile");
     return ipcRenderer.invoke("select-file");
@@ -81,6 +82,11 @@ contextBridge.exposeInMainWorld("electronAPI", {
     const handler = () => cb()
     ipcRenderer.on("start-settings-tour", handler)
     return () => ipcRenderer.removeListener("start-settings-tour", handler)
+  },
+  onSettingsTab: (callback) => {
+    const handler = (event, tab) => callback(tab)
+    ipcRenderer.on("settings-tab", handler)
+    return () => ipcRenderer.removeListener("settings-tab", handler)
   },
   openImporter: (source) => {
     console.log(`Invoking openImporter with source: ${source}`);
@@ -324,6 +330,11 @@ contextBridge.exposeInMainWorld("electronAPI", {
   onAppearanceChanged: (callback) => {
     ipcRenderer.on("appearance-changed", (event, appearance) => callback(appearance));
     return () => ipcRenderer.removeAllListeners("appearance-changed");
+  },
+  onShortcutsChanged: (callback) => {
+    const handler = (event, bindings) => callback(bindings);
+    ipcRenderer.on("shortcuts-changed", handler);
+    return () => ipcRenderer.removeListener("shortcuts-changed", handler);
   },
   // Theme Builder live preview — see electron/ipc/themes.js. Sent only
   // while a Theme Builder window is open, to every OTHER window, as the
@@ -635,6 +646,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
       "rate-title-requested",
       "update-status",
       "appearance-changed",
+      "shortcuts-changed",
+      "settings-tab",
       "metadata-changed",
       "game-deleted",
       "library-validation-progress",

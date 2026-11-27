@@ -14,6 +14,8 @@
 // on the detail page, and a scope flag threaded through it to serve both would
 // be a shared component with two personalities.
 
+import { useEscapeKey } from '../../hooks/useEscapeKey.js'
+
 const ACTIONS = [
   {
     id: 'metadata',
@@ -48,6 +50,8 @@ export default function LibraryUpdateModal({
   onChoose,   // (id: 'metadata' | 'client' | 'games') => void
   onClose,
 }) {
+  useEscapeKey(onClose, open)
+
   if (!open) return null
 
   return (

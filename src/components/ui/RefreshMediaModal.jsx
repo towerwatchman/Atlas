@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useEscapeKey } from '../../hooks/useEscapeKey.js'
 
 // Modal shown by the two refresh entry points:
 //   - the per-game "Refresh Media" button on the game details page (scope='game')
@@ -34,6 +35,8 @@ export default function RefreshMediaModal({
     })()
     return () => { cancelled = true }
   }, [open])
+
+  useEscapeKey(() => { if (!busy) onClose?.() }, open)
 
   if (!open) return null
 

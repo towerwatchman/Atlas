@@ -356,6 +356,13 @@
   }
 }
 
+/* Native drag leaves :hover stuck on the grabbed row. Neutralise the hover
+   styling while dragging so it does not paint a second highlighted row. */
+.downloads-dragging .group:hover {
+  background-color: var(--color-secondary);
+  border-color: var(--color-border);
+}
+
 .-webkit-app-region-drag {
   -webkit-user-select: none;
   -webkit-app-region: drag;

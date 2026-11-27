@@ -42,7 +42,7 @@ describe('the Downloads page scrolls its own list', () => {
 
   it('the list is wrapped in the single scroll container', () => {
     expect(pageSource).toMatch(
-      /overflow-y-auto downloads-scroll px-4 sm:px-6 py-4 pb-10/,
+      /overflow-y-auto downloads-scroll px-4 sm:px-6 pt-2 pb-10/,
     )
     expect(pageSource).toContain('onScroll={handleScroll}')
   })

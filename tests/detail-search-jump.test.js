@@ -29,9 +29,10 @@ test('App jumps to the grid with the payload applied', () => {
   expect(app).toContain('onMetadataSearch={handleMetadataSearch}')
 })
 
-test('a catalog jump lands the side panel with it, like rail Browse', () => {
+test('a catalog jump leaves the side panel as the user set it', () => {
   const jump = app.slice(app.indexOf('const handleMetadataSearch'), app.indexOf('const resetFilters'))
-  expect(jump).toContain('SIDE_PANEL_MODES.CATALOG')
+  expect(jump).not.toContain('SIDE_PANEL_MODES.CATALOG')
+  expect(jump).not.toContain('setSidebarMode(')
 })
 
 test('the mode lives in a GameDetails setting, not hardcoded', () => {

@@ -29,14 +29,17 @@ const fetchAvailableThemes = async () => {
   }
 }
 
-// navDisplayMode/accentBarEnabled/filterSidebarSide/filterSidebarMode all
-// fall back to the THEME's own nav defaults (not a hardcoded constant)
-// whenever config.ini doesn't already have an explicit value of its own —
-// i.e. the first time a theme is ever selected, or on a fresh install.
-// Once a value exists in config, it's used as-is (independent of the
-// active theme) until either the user changes it directly or picks a
-// different theme — see setTheme below, which writes the new theme's nav
-// defaults into config explicitly rather than relying on this fallback.
+// navDisplayMode/filterSidebarSide/filterSidebarMode fall back to the
+// THEME's own nav defaults (not a hardcoded constant) whenever config.ini
+// doesn't already have an explicit value of its own — i.e. the first time
+// a theme is ever selected, or on a fresh install. Once a value exists in
+// config, it's used as-is until either the user changes it directly or
+// picks a different theme — see setTheme below, which writes the new
+// theme's nav defaults into config explicitly rather than this fallback.
+//
+// accentBarEnabled is different: the active theme file owns it. The config
+// key stays in the schema for compatibility but is ignored here, so a theme
+// switch always adopts that theme's own flag.
 const parseAppearance = (appearance = {}, themeList) => {
   const customTheme = appearance.customTheme
     ? (() => {
@@ -56,9 +59,7 @@ const parseAppearance = (appearance = {}, themeList) => {
     navDisplayMode: appearance.navDisplayMode !== undefined && appearance.navDisplayMode !== ''
       ? normalizeNavDisplayMode(appearance.navDisplayMode)
       : normalizeNavDisplayMode(theme?.nav?.displayMode),
-    accentBarEnabled: appearance.accentBarEnabled !== undefined && appearance.accentBarEnabled !== ''
-      ? appearance.accentBarEnabled !== false && appearance.accentBarEnabled !== 'false'
-      : theme?.nav?.accentBarEnabled !== false,
+    accentBarEnabled: theme?.nav?.accentBarEnabled !== false,
     filterSidebarSide: appearance.filterSidebarSide !== undefined && appearance.filterSidebarSide !== ''
       ? normalizeFilterSidebarSide(appearance.filterSidebarSide)
       : normalizeFilterSidebarSide(theme?.nav?.filterSidebar?.side),
@@ -316,8 +317,8 @@ export function ThemeProvider({ children }) {
     // Picking a theme adopts ITS nav defaults (layout, displayMode,
     // accentBarEnabled, filterSidebar side/mode — glow is read directly
     // off theme.nav.glow wherever it's painted, not duplicated into
-    // Appearance), overriding whatever was set before. This is
-    // intentional — see the note on LAYOUT_OPTIONS in themes.js.
+    // Appearance), overriding whatever was set before. The accent flag
+    // belongs to the theme, so it follows the theme here too.
     const nextLayout = normalizeLayout(nextTheme?.nav?.layout)
     const nextNavDisplayMode = normalizeNavDisplayMode(nextTheme?.nav?.displayMode)
     const nextAccentBarEnabled = nextTheme?.nav?.accentBarEnabled !== false

@@ -38,11 +38,10 @@ const kebabCase = (key) => key.replace(/([a-z0-9])([A-Z])/g, '$1-$2').toLowerCas
  * layout + nav-display-mode + accent-bar-enabled. Safe to call repeatedly
  * (e.g. on every appearance-changed event).
  *
- * navOverrides lets the caller supply the actually-active
- * navDisplayMode/accentBarEnabled (which live independently in
- * Appearance.* once set — see ThemeProvider.jsx's parseAppearance) rather
- * than always falling back to the theme's own nav defaults. Omitted
- * fields fall back to safeTheme.nav's value.
+ * navOverrides lets the caller supply the active navDisplayMode and
+ * accentBarEnabled. Omitted fields fall back to the theme's own nav
+ * defaults. ThemeProvider derives both from the active theme, which owns
+ * the accent flag.
  */
 export function applyTheme(theme, layout, navOverrides = {}) {
   const safeTheme = normalizeTheme(theme)
@@ -167,10 +166,6 @@ export async function applyThemeOnLoad() {
     const theme = customTheme || getThemeById(appearance.themeId, themeList)
     applyTheme(theme, appearance.layout, {
       navDisplayMode: appearance.navDisplayMode,
-      accentBarEnabled:
-        appearance.accentBarEnabled !== undefined && appearance.accentBarEnabled !== ''
-          ? appearance.accentBarEnabled !== false && appearance.accentBarEnabled !== 'false'
-          : undefined,
     })
   } catch (err) {
     console.error('Failed to apply saved theme on load:', err)

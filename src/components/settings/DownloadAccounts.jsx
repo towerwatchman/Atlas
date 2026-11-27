@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { useEscapeKey } from '../../hooks/useEscapeKey.js'
 import HostIcon from '../downloads/HostIcon.jsx'
 
 // ── Settings: Download Accounts ──────────────────────────────────────────────
@@ -80,6 +81,8 @@ function HostCard({ plugin, account, available, onSaved, onRemoved }) {
   // fields with help text under each -- inline it pushed every card below it
   // down the page and read as part of the list rather than as a task.
   const [modalOpen, setModalOpen] = useState(false)
+
+  useEscapeKey(() => { if (!busy) { setModalOpen(false); setValues({}); setError('') } }, modalOpen)
   // MEGA is the only host that charges CPU to sign in, so the diagnostic is
   // scoped to it rather than added to every card.
   const [selfTest, setSelfTest] = useState(null)

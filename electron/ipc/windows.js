@@ -396,6 +396,13 @@ module.exports = function registerWindowsHandlers(ctx) {
     return { success: true, quitting: false }
   })
 
+  // Quit is global: close-window only quits when the caller is the main window,
+  // so a shortcut in a settings window needs a path that shuts down the app.
+  ipcMain.handle('quit-app', () => {
+    ctx.quitFromMainWindow()
+    return { success: true }
+  })
+
   // Entry point for the custom React context menu. It reuses handleContextAction
   // rather than reimplementing a dozen actions in the renderer, so the native
   // menu path and the custom one cannot drift — confirmations, elevation

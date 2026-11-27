@@ -13,7 +13,7 @@ import { BROWSE_MODE_ENABLED } from '../../features.js'
 
 export function getNavItems({
   onToggleGameList, onCheckDbUpdates, onBrowseCatalog, onOpenWishlist,
-  onToggleSearchSidebar, onOpenAbout, onOpenCollections,
+  onToggleSearchSidebar, onOpenAbout, onOpenCollections, onOpenDownloads,
   // Runtime gate for the Browse nav item: requires BOTH the build-time
   // BROWSE_MODE_ENABLED flag AND the user's per-install NSFW opt-in
   // (see App.jsx's browseAvailable / electron/ipc/settings.js's
@@ -30,6 +30,7 @@ export function getNavItems({
       // "home" screen. Icon swapped from a house to a books/library glyph
       // to match.
       name: 'Library',
+      group: 'main',
       icon: 'library.svg',
       path: [
         // Three upright books side-by-side (simple "library" glyph: a row
@@ -44,6 +45,7 @@ export function getNavItems({
     },
     {
       name: 'Add',
+      group: 'utility',
       icon: 'add.svg',
       path: [
         '<path d="M11 8C11 7.44772 11.4477 7 12 7C12.5523 7 13 7.44771 13 8V11H16C16.5523 11 17 11.4477 17 12C17 12.5523 16.5523 13 16 13H13V16C13 16.5523 12.5523 17 12 17C11.4477 17 11 16.5523 11 16V13H8C7.44772 13 7 12.5523 7 12C7 11.4477 7.44771 11 8 11H11V8Z"/>',
@@ -63,6 +65,7 @@ export function getNavItems({
     },
     browseModeAvailable ? {
       name: 'Browse',
+      group: 'main',
       path: [
         '<path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 2c4.42 0 8 3.58 8 8s-3.58 8-8 8-8-3.58-8-8 3.58-8 8-8zm3.94 4.06-2.12 5.66a1 1 0 0 1-.59.59l-5.66 2.12 2.12-5.66a1 1 0 0 1 .59-.59l5.66-2.12zM12 11a1 1 0 1 0 0 2 1 1 0 0 0 0-2z"/>',
       ],
@@ -73,6 +76,7 @@ export function getNavItems({
     } : null,
     {
       name: 'Favorites',
+      group: 'main',
       path: [
         '<path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.08C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>',
       ],
@@ -88,6 +92,7 @@ export function getNavItems({
       // Sits directly after Favorites in both layouts: below it in the left
       // rail, immediately right of it in the topnav's right-hand group.
       name: 'Collections',
+      group: 'main',
       path: [
         '<path d="M3 5C3 4.44772 3.44772 4 4 4H10C10.5523 4 11 4.44772 11 5V10C11 10.5523 10.5523 11 10 11H4C3.44772 11 3 10.5523 3 10V5Z"/>',
         '<path d="M13 5C13 4.44772 13.4477 4 14 4H20C20.5523 4 21 4.44772 21 5V10C21 10.5523 20.5523 11 20 11H14C13.4477 11 13 10.5523 13 10V5Z"/>',
@@ -101,6 +106,7 @@ export function getNavItems({
     },
     {
       name: 'Updates',
+      group: 'utility',
       icon: 'updates.svg',
       path: [
         '<path d="M5,12A7,7,0,0,1,16.89,7H14a1,1,0,0,0,0,2h5.08A1,1,0,0,0,20,8V3a1,1,0,0,0-2,0V5.32A9,9,0,0,0,3,12a1,1,0,0,0,2,0Z M20,11a1,1,0,0,0-1,1A7,7,0,0,1,7.11,17H10a1,1,0,0,0,0-2H4.92A1,1,0,0,0,4,16v5a1,1,0,0,0,2,0V18.68A9,9,0,0,0,21,12,1,1,0,0,0,20,11Z"/>',
@@ -145,7 +151,21 @@ export function getNavItems({
       },
     },
     {
+      name: 'Downloads',
+      group: 'main',
+      path: [
+        '<path d="M12 3v8.5" fill="none" stroke="currentColor"/>',
+        '<path d="M7 8 12 13 17 8" fill="none" stroke="currentColor"/>',
+        '<path d="M4 15.5v4.5h16v-4.5" fill="none" stroke="currentColor"/>',
+      ],
+      viewBox: '0 0 24 24',
+      onClick: () => {
+        if (onOpenDownloads) onOpenDownloads()
+      },
+    },
+    {
       name: 'Settings',
+      group: 'utility',
       icon: 'settings.svg',
       path: [
         '<path d="M10.490234 2C10.011234 2 9.6017656 2.3385938 9.5097656 2.8085938L9.1757812 4.5234375C8.3550224 4.8338012 7.5961042 5.2674041 6.9296875 5.8144531L5.2851562 5.2480469C4.8321563 5.0920469 4.33375 5.2793594 4.09375 5.6933594L2.5859375 8.3066406C2.3469375 8.7216406 2.4339219 9.2485 2.7949219 9.5625L4.1132812 10.708984C4.0447181 11.130337 4 11.559284 4 12C4 12.440716 4.0447181 12.869663 4.1132812 13.291016L2.7949219 14.4375C2.4339219 14.7515 2.3469375 15.278359 2.5859375 15.693359L4.09375 18.306641C4.33275 18.721641 4.8321562 18.908906 5.2851562 18.753906L6.9296875 18.1875C7.5958842 18.734206 8.3553934 19.166339 9.1757812 19.476562L9.5097656 21.191406C9.6017656 21.661406 10.011234 22 10.490234 22L13.509766 22C13.988766 22 14.398234 21.661406 14.490234 21.191406L14.824219 19.476562C15.644978 19.166199 16.403896 18.732596 17.070312 18.185547L18.714844 18.751953C19.167844 18.907953 19.66625 18.721641 19.90625 18.306641L21.414062 15.691406C21.653063 15.276406 21.566078 14.7515 21.205078 14.4375L19.886719 13.291016C19.955282 12.869663 20 12.440716 20 12C20 11.559284 19.955282 11.130337 19.886719 10.708984L21.205078 9.5625C21.566078 9.2485 21.653063 8.7216406 21.414062 8.3066406L19.90625 5.6933594C19.66725 5.2783594 19.167844 5.0910937 18.714844 5.2460938L17.070312 5.8125C16.404116 5.2657937 15.644607 4.8336609 14.824219 4.5234375L14.490234 2.8085938C14.398234 2.3385937 13.988766 2 13.509766 2L10.490234 2 z M 12 8C14.209 8 16 9.791 16 12C16 14.209 14.209 16 12 16C9.791 16 8 14.209 8 12C8 9.791 9.791 8 12 8 z"/>',
@@ -160,7 +180,11 @@ export function getNavItems({
 // (detail metadata clicks) switch modes without a rail click, and a stale
 // flag kept both lit at once. Everything else follows the click flag;
 // List is a view toggle, not a destination, so it never highlights.
-export function navItemIsActive(itemName, { libraryMode = 'local', favoritesActive = false, collectionsActive = false, selected = null } = {}) {
+export function navItemIsActive(itemName, { libraryMode = 'local', favoritesActive = false, collectionsActive = false, downloadsActive = false, selected = null } = {}) {
+  if (itemName === 'Downloads') return downloadsActive
+  // Downloads is a full view over the library, so the destination buttons
+  // must go dark while it is current even though libraryMode stays 'local'.
+  if (downloadsActive && (itemName === 'Library' || itemName === 'Favorites' || itemName === 'Collections')) return false
   if (itemName === 'Collections') return collectionsActive
   if (itemName === 'Favorites') return favoritesActive
   if (itemName === 'Library') return libraryMode === 'local' && !favoritesActive && !collectionsActive
@@ -211,6 +235,22 @@ export function parseIconParts(item, { showGameList } = {}) {
 
     const dMatch = pathStr.match(/d="([^"]*)"/)
     if (dMatch) {
+      const strokeMatch = pathStr.match(/stroke="([^"]*)"/)
+      // The parent <svg> only sets fill, so a stroked glyph needs its stroke
+      // styling copied onto the path or it renders as a solid shape.
+      if (strokeMatch) {
+        return {
+          tag: 'path',
+          props: {
+            fill: pathStr.match(/fill="([^"]*)"/)?.[1] ?? 'none',
+            stroke: strokeMatch[1],
+            strokeWidth: pathStr.match(/stroke-width="([^"]*)"/)?.[1] ?? '2',
+            strokeLinecap: 'round',
+            strokeLinejoin: 'round',
+            d: dMatch[1],
+          },
+        }
+      }
       return { tag: 'path', props: { fill: 'currentColor', d: dMatch[1] } }
     }
     return null

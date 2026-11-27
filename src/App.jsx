@@ -16,6 +16,7 @@ import CollectionsView from './components/collections/CollectionsView.jsx'
 import CollectionModal from './components/collections/CollectionModal.jsx'
 import BulkTagModal from './components/collections/BulkTagModal.jsx'
 import { useCollections, UNCATEGORIZED_ID } from './hooks/useCollections.js'
+import { useEscapeKey } from './hooks/useEscapeKey.js'
 import { retainImage } from './utils/imageRetention.js'
 import { toMediaSrc } from './utils/mediaSrc.js'
 import { releaseUrlFor } from './utils/releaseUrl.js'
@@ -44,9 +45,23 @@ import { useTheme } from './theme/ThemeProvider.jsx'
 import { useBannerTemplate } from './theme/BannerTemplateProvider.jsx'
 import { getGameTitle, normalizeGameForRenderer } from './utils/gameDisplay.js'
 import { getWishlistIdentityKey, withWishlistStates } from './utils/wishlistIdentity.js'
+import {
+  buildWishlistPayload, canToggleWishlist, isGameInstalled,
+} from './utils/wishlistPayload.js'
 import { shouldRefetchCatalog } from './utils/wishlistRefresh.js'
 import { formatPercent, formatProgressNumber, sanitizePercentText } from './utils/formatPercent.js'
 import { BROWSE_MODE_ENABLED } from './features.js'
+import {
+  createHistory, currentSnapshot, loadHistory, pushSnapshot, saveHistory,
+  goBack, goForward,
+} from './lib/navigationHistory.js'
+import {
+  comboFromEvent, comboFromMouseEvent, readBindings, buildShortcutIndex, settingsPageActionId,
+} from './lib/keyboardShortcuts.js'
+import { settingsIcons } from './components/settings/settingsIcons.js'
+
+const SETTINGS_PAGE_PREFIX = settingsPageActionId('')
+const visibleSettingsPages = new Set(settingsIcons.filter((item) => !item.hidden).map((item) => item.name))
 
 const debounce = (func, delay) => {
   let timeout
@@ -149,6 +164,8 @@ const App = () => {
   // always goes to the other mode. Loaded from config below.
   const [detailClickSearchMode, setDetailClickSearchMode] = useState('browse')
   const [showSearchSidebar, setShowSearchSidebar] = useState(false)
+  // A toggle before startup config resolves must win over the saved value.
+  const filterSidebarTouchedRef = useRef(false)
   const [userSavedFilters, setUserSavedFilters] = useState([])
   const [wishlistIdentityKeys, setWishlistIdentityKeys] = useState(new Set())
   const [activeSavedFilterId, setActiveSavedFilterId] = useState('')
@@ -157,6 +174,8 @@ const App = () => {
   // Bumped whenever a detail jump lands text in the search box, handing the
   // cursor over with it. Mirrors resetInputSignal above.
   const [searchFocusSignal, setSearchFocusSignal] = useState(0)
+  const [shortcutBindings, setShortcutBindings] = useState(() => readBindings({}))
+  const shortcutIndex = useMemo(() => buildShortcutIndex(shortcutBindings), [shortcutBindings])
   // Banner card dimensions for Grid sizing — derived from the same
   // resolved template BannerTemplateProvider already computed once for
   // <GameBanner> (see src/theme/BannerTemplateProvider.jsx), rather than
@@ -283,6 +302,25 @@ const App = () => {
       .catch((err) => console.error('Failed to save side panel mode:', err))
   }, [browseAvailable])
 
+  // Filter visibility is a preference: every open and close writes it back,
+  // while Downloads and detail views only mask the derived view flag.
+  const setAndPersistFilterSidebar = useCallback((next) => {
+    filterSidebarTouchedRef.current = true
+    setShowSearchSidebar(next)
+    window.electronAPI
+      .getConfig()
+      .then((config) => {
+        window.electronAPI.saveSettings({
+          ...config,
+          Interface: {
+            ...config.Interface,
+            showFilterSidebar: next,
+          },
+        })
+      })
+      .catch((err) => console.error('Failed to save filter sidebar visibility:', err))
+  }, [])
+
   // ── Hooks ──────────────────────────────────────────────────────────────────
   const {
     games, catalogGames, wishlistGames, totalVersions, fetchGames, fetchCatalogGames,
@@ -303,11 +341,103 @@ const App = () => {
   } = useCollections({ enabled: true })
   // 'grid' is the normal library; 'collections' is the tile screen.
   const [libraryView, setLibraryView] = useState('grid')
+  // Downloads needs the full width, but hiding a panel there must not discard
+  // the visibility the user chose for the other views.
+  const showGameListInView = showGameList && libraryView !== 'downloads'
+  const showLibrarySidebarInView = showLibrarySidebar && libraryView !== 'downloads'
+  const showSearchSidebarInView = showSearchSidebar && libraryView !== 'downloads'
+
+  const {
+    activeFilters, handleFilterChange, handleResetFilters,
+    filteredGames: localFilteredGames, installedGameCount, uninstalledGameCount,
+  } = useFilters(games, includeUninstalledRef, fetchGames, setSelectedGame, { collectionIdsByRecord })
+
+  // View history is session-only: a reload restores the page and its filter
+  // identity, not chips, scroll, sidebar style or theme.
+  const [viewHistory, setViewHistory] = useState(() => loadHistory() ?? createHistory())
+  const hadSavedHistoryRef = useRef(viewHistory.entries.length > 0)
+  const bootSnapshotRef = useRef(currentSnapshot(viewHistory))
+  const configReadyRef = useRef(false)
+
+  const recordNavigation = useCallback((view, game = null, identity = {}) => {
+    setViewHistory((previous) => pushSnapshot(previous, {
+      view,
+      game,
+      savedFilterId: identity.savedFilterId ?? activeSavedFilterId,
+      collectionId: identity.collectionId ?? activeFilters.collectionIds?.[0] ?? null,
+    }))
+  }, [activeSavedFilterId, activeFilters])
+
+  const applySnapshot = useCallback((snapshot) => {
+    if (!snapshot) return
+    if (snapshot.view === 'detail') {
+      setSelectedGame(snapshot.game ?? null)
+      return
+    }
+    setSelectedGame(null)
+    // A Browse entry recorded before the NSFW opt-in was turned off must not
+    // reopen the adult catalog through history.
+    if (snapshot.view === 'browse' && !browseAvailableRef.current) {
+      setLibraryMode('local')
+      setLibraryView('grid')
+    } else if (snapshot.view === 'browse') {
+      setLibraryMode('catalog')
+      setLibraryView('grid')
+    } else if (snapshot.view === 'wishlist') {
+      setLibraryMode('wishlist')
+      setLibraryView('grid')
+    } else if (snapshot.view === 'collections') {
+      setLibraryMode('local')
+      setLibraryView('collections')
+    } else if (snapshot.view === 'downloads') {
+      setLibraryMode('local')
+      setLibraryView('downloads')
+    } else {
+      setLibraryMode('local')
+      setLibraryView('grid')
+    }
+    // Favorites is a saved filter over the local library, not its own mode;
+    // restoring it needs the same filter state as opening it.
+    if (snapshot.view === 'favorites') {
+      setActiveSavedFilterId('builtin-favorites')
+      handleFilterChange(normalizeFilterState({
+        ...defaultFilters,
+        favoritesOnly: true,
+        includeUninstalled: true,
+        installState: 'all',
+      }))
+    } else if (['browse', 'wishlist', 'library', 'collections'].includes(snapshot.view)) {
+      setActiveSavedFilterId(snapshot.savedFilterId || '')
+      if (snapshot.view === 'library' || snapshot.view === 'collections') {
+        handleFilterChange({ collectionIds: snapshot.collectionId ? [snapshot.collectionId] : [] })
+      }
+    }
+  }, [handleFilterChange])
+
+  const handleGoBack = useCallback(() => {
+    const result = goBack(viewHistory)
+    if (!result) return
+    setViewHistory(result.history)
+    applySnapshot(result.snapshot)
+  }, [viewHistory, applySnapshot])
+
+  const handleGoForward = useCallback(() => {
+    const result = goForward(viewHistory)
+    if (!result) return
+    setViewHistory(result.history)
+    applySnapshot(result.snapshot)
+  }, [viewHistory, applySnapshot])
+
+  useEffect(() => {
+    saveHistory(viewHistory)
+  }, [viewHistory])
+
   const [collectionModal, setCollectionModal] = useState(null)
   const [collectionModalBusy, setCollectionModalBusy] = useState(false)
   const [collectionModalError, setCollectionModalError] = useState('')
   const [expandedCollectionIds, setExpandedCollectionIds] = useState(() => new Set())
   const [pendingCollectionDelete, setPendingCollectionDelete] = useState(null)
+  useEscapeKey(() => setPendingCollectionDelete(null), Boolean(pendingCollectionDelete))
   const [bulkTagTarget, setBulkTagTarget] = useState(null)
   // Set when "Rate Game" is chosen from a context menu. The modal itself lives on
   // the detail page, so the grid has to navigate there and hand off a request.
@@ -348,10 +478,6 @@ const App = () => {
     return [...seen.values()].sort((a, b) => a.localeCompare(b))
   }, [bulkTagRecordIds, gamesByRecordId])
 
-  const {
-    activeFilters, handleFilterChange, handleResetFilters,
-    filteredGames: localFilteredGames, installedGameCount, uninstalledGameCount,
-  } = useFilters(games, includeUninstalledRef, fetchGames, setSelectedGame, { collectionIdsByRecord })
   const catalogWithWishlist = useMemo(
     () => withWishlistStates(catalogGames, wishlistIdentityKeys),
     [catalogGames, wishlistIdentityKeys],
@@ -662,14 +788,12 @@ const App = () => {
   }, [])
 
   const goHome = useCallback(() => {
+    recordNavigation('library', null, { savedFilterId: '', collectionId: null })
     setLibraryMode('local')
     setLibraryView('grid')
     // Inlined rather than calling clearCollectionFilter(), which is declared
     // further down — handleFilterChange is already in scope here.
     handleFilterChange({ collectionIds: [] })
-    if (sidebarMode === SIDE_PANEL_MODES.CATALOG || sidebarMode === SIDE_PANEL_MODES.WISHLIST) {
-      setAndPersistSidePanelMode(SIDE_PANEL_MODES.HIDDEN)
-    }
     // If a built-in/saved filter is applied (e.g. Favorites, which is a
     // filtered local view rather than its own libraryMode), clear it and
     // reset to the default library — otherwise "go home"/Library would
@@ -680,7 +804,7 @@ const App = () => {
       handleResetFilters()
     }
     goBackToLibrary()
-  }, [goBackToLibrary, setAndPersistSidePanelMode, sidebarMode, activeSavedFilterId, handleResetFilters, handleFilterChange])
+  }, [goBackToLibrary, activeSavedFilterId, handleResetFilters, handleFilterChange, recordNavigation])
 
 
   // ── Collection handlers ────────────────────────────────────────────────────
@@ -697,10 +821,11 @@ const App = () => {
   }, [])
 
   const openCollections = useCallback(() => {
+    recordNavigation('collections', null, { savedFilterId: '', collectionId: null })
     setLibraryMode('local')
     setSelectedGame(null)
     setLibraryView('collections')
-  }, [])
+  }, [recordNavigation])
 
   // Downloads is a full view rather than an overlay: transfers are long
   // running and people leave the screen open to watch them, which wants room
@@ -714,16 +839,18 @@ const App = () => {
   const openUpdateModal = useCallback((game) => { if (game) setUpdateModalGame(game) }, [])
 
   const openDownloads = useCallback(() => {
+    recordNavigation('downloads', null, { savedFilterId: '', collectionId: null })
     setLibraryMode('local')
     setSelectedGame(null)
     setLibraryView('downloads')
-  }, [])
+  }, [recordNavigation])
 
   // Opening a collection is a filtered local view, exactly like Favorites: it
   // sets a filter rather than becoming its own libraryMode, so search and the
   // rest of the filter sidebar keep working inside a collection.
   const openCollection = useCallback((collection) => {
     if (!collection) return
+    recordNavigation('collections', null, { savedFilterId: '', collectionId: String(collection.id) })
     setLibraryMode('local')
     setSelectedGame(null)
     setLibraryView('grid')
@@ -733,7 +860,7 @@ const App = () => {
       includeUninstalled: true,
       installState: 'all',
     })
-  }, [handleFilterChange])
+  }, [handleFilterChange, recordNavigation])
 
   const clearCollectionFilter = useCallback(() => {
     handleFilterChange({ collectionIds: [] })
@@ -899,9 +1026,9 @@ const App = () => {
   }, [toast])
 
   const selectGame = useCallback((game) => {
-    setShowSearchSidebar(false)
     const selected = withWishlistStates([game], wishlistIdentityKeys)[0] || game
     setSelectedGame(selected)
+    if (selected) recordNavigation('detail', selected)
     const localRecordId = game?.isMetadataOnly ? getLocalRecordIdForCatalogRow(selected) : null
     const recordIdToLoad = localRecordId || game?.record_id
     if (!recordIdToLoad || (game.isMetadataOnly && !localRecordId)) {
@@ -915,7 +1042,6 @@ const App = () => {
       .then((updatedGame) => {
         const normalizedGame = normalizeGameForRenderer(updatedGame)
         if (normalizedGame) {
-          setShowSearchSidebar(false)
           setSelectedGame(localRecordId
             ? {
                 ...normalizedGame,
@@ -931,7 +1057,7 @@ const App = () => {
       .catch((error) =>
         console.error(`Failed to refresh selected game ${recordIdToLoad}:`, error)
       )
-  }, [wishlistIdentityKeys])
+  }, [wishlistIdentityKeys, recordNavigation])
 
   // Opens the rating modal for a title chosen from a context menu in the grid or
   // tree. Real dependencies, so it sees the current games list rather than the
@@ -1069,7 +1195,7 @@ const App = () => {
   }
 
   // ── Sidebar / list toggle ──────────────────────────────────────────────────
-  const toggleGameList = () => {
+  const toggleGameList = useCallback(() => {
     // Games list is a simple show/hide now that saved filters live in the
     // filter sidebar rather than a third state of this toggle.
     setAndPersistSidePanelMode(
@@ -1077,7 +1203,7 @@ const App = () => {
         ? SIDE_PANEL_MODES.HIDDEN
         : SIDE_PANEL_MODES.GAMES
     )
-  }
+  }, [setAndPersistSidePanelMode, sidebarMode])
 
   // Records the user's answer to the first-run NSFW/adult-content prompt.
   // Persists immediately via set-nsfw-enabled (which also marks the config
@@ -1103,16 +1229,12 @@ const App = () => {
     if (!browseAvailable) {
       setLibraryMode('local')
       setSelectedGame(null)
-      setAndPersistSidePanelMode(SIDE_PANEL_MODES.GAMES)
       return
     }
+    recordNavigation('browse', null, { savedFilterId: '', collectionId: null })
     const enteringFreshly = libraryMode !== 'catalog'
     setLibraryMode('catalog')
     setSelectedGame(null)
-    if (sidebarMode !== SIDE_PANEL_MODES.SAVED_FILTERS) {
-      setAndPersistSidePanelMode(SIDE_PANEL_MODES.CATALOG)
-    }
-    setShowSearchSidebar(false)
 
     if (enteringFreshly) {
       // Browse should always open with no filters active — the full
@@ -1159,8 +1281,7 @@ const App = () => {
     fetchCatalogGames,
     handleFilterChange,
     libraryMode,
-    setAndPersistSidePanelMode,
-    sidebarMode,
+    recordNavigation,
   ])
 
   const loadWishlistIdentities = useCallback(() => {
@@ -1178,15 +1299,15 @@ const App = () => {
   }, [])
 
   const openWishlist = useCallback(() => {
+    recordNavigation('wishlist', null, { savedFilterId: '', collectionId: null })
     setLibraryMode('wishlist')
     setSelectedGame(null)
-    setAndPersistSidePanelMode(SIDE_PANEL_MODES.WISHLIST)
-    setShowSearchSidebar(false)
     Promise.all([fetchWishlistGames(), loadWishlistIdentities()])
       .catch((err) => console.error('Failed to open wishlist:', err))
-  }, [fetchWishlistGames, loadWishlistIdentities, setAndPersistSidePanelMode])
+  }, [fetchWishlistGames, loadWishlistIdentities, recordNavigation])
 
   const openFavorites = useCallback(() => {
+    recordNavigation('favorites', null, { savedFilterId: 'builtin-favorites', collectionId: null })
     setLibraryView('grid')
     const favoriteFilters = normalizeFilterState({
       ...defaultFilters,
@@ -1197,14 +1318,10 @@ const App = () => {
     setLibraryMode('local')
     setSelectedGame(null)
     setActiveSavedFilterId('builtin-favorites')
-    // Deliberately does NOT touch the side panel. Favourites is a filter over
-    // the local library, not a distinct view like Wishlist or Browse, so it has
-    // no business rearranging panels the user has set. It previously forced the
-    // games list open via setAndPersistSidePanelMode, which also WROTE that to
-    // settings -- so a user who kept the list hidden had it reopened, and the
-    // change stuck across restarts.
+    // Favourites is a filter over the local library, not a distinct view, so it
+    // must not rearrange the panels the user has set.
     handleFilterChange(favoriteFilters)
-  }, [handleFilterChange])
+  }, [handleFilterChange, recordNavigation])
 
   const handleWishlistChanged = useCallback(async (result = {}, sourceGame = null) => {
     const identityKey = result.identityKey || getWishlistIdentityKey(sourceGame || result.entry || {})
@@ -1238,8 +1355,8 @@ const App = () => {
 
   const toggleSearchSidebar = useCallback(() => {
     if (selectedGame) return
-    setShowSearchSidebar((prev) => !prev)
-  }, [selectedGame])
+    setAndPersistFilterSidebar(!showSearchSidebar)
+  }, [selectedGame, showSearchSidebar, setAndPersistFilterSidebar])
 
   const handleSearchChange = useCallback((text) => {
     setActiveSavedFilterId('')
@@ -1267,7 +1384,7 @@ const App = () => {
       setLibraryMode('local')
       setLibraryView('grid')
       setSelectedGame(null)
-      setShowSearchSidebar(true)
+      setAndPersistFilterSidebar(true)
       setActiveSavedFilterId('')
       handleFilterChange(baseFilters)
       return
@@ -1277,17 +1394,12 @@ const App = () => {
     setLibraryMode('catalog')
     setLibraryView('grid')
     setSelectedGame(null)
-    // Same panel rail Browse leaves behind, without rewriting the saved
-    // preference: the jump borrows catalog for now, it is not a setting.
-    if (sidebarMode !== SIDE_PANEL_MODES.SAVED_FILTERS) {
-      setSidebarMode(SIDE_PANEL_MODES.CATALOG)
-    }
-    setShowSearchSidebar(true)
+    setAndPersistFilterSidebar(true)
     setActiveSavedFilterId('')
     handleFilterChange(nextFilters)
     lastFetchedCatalogParamsKeyRef.current = catalogParamsKey(nextSearch, nextFilters)
     fetchCatalogGames({ reset: true, search: nextSearch, filters: nextFilters })
-  }, [browseAvailable, detailClickSearchMode, fetchCatalogGames, handleFilterChange, sidebarMode])
+  }, [browseAvailable, detailClickSearchMode, fetchCatalogGames, handleFilterChange, sidebarMode, setAndPersistFilterSidebar])
 
   const resetFilters = useCallback(() => {
     setActiveSavedFilterId('')
@@ -1346,7 +1458,6 @@ const App = () => {
     pendingLibraryScrollTopRestoreRef.current = 0
     libraryScrollTopRef.current = 0
     setSelectedGame(null)
-    setShowSearchSidebar(false)
     setActiveSavedFilterId(filter.id || '')
     if (filter.id === 'builtin-wishlist') {
       setLibraryMode('catalog')
@@ -1629,6 +1740,7 @@ const App = () => {
         // No need to touch activeFilters: an empty searchFields means "inherit
         // the configured default", which resolveSearchFieldIds reads from here.
         applyDefaultSearchFields(config?.Search?.defaultFields)
+        setShortcutBindings(readBindings(config))
         // Whether the age/adult-content prompt still needs an answer
         // (config has never recorded one). We don't open it immediately
         // anymore — the first-run welcome page comes first (tracked by its
@@ -1670,17 +1782,27 @@ const App = () => {
           config.Interface?.showGameList ?? true,
           browseOk,
         )
-        // Atlas should always open to the local library on launch. The
-        // persisted sidePanelMode is still used to restore the sidebar style
-        // (game list vs. saved filters) the user last had, but a persisted
-        // Browse (catalog) or Wishlist mode must NOT be used as the startup
-        // destination — those are only entered via explicit navigation
-        // during the session.
-        if (nextMode === SIDE_PANEL_MODES.CATALOG || nextMode === SIDE_PANEL_MODES.WISHLIST) {
+        // A saved closed list wins over the stored mode. Browse and Wishlist
+        // also write showGameList=false, so neither may reopen the list on the
+        // local-library launch. Otherwise those modes only choose the sidebar
+        // style and fall back to the game list here.
+        if (config.Interface?.showGameList === false) {
+          nextMode = SIDE_PANEL_MODES.HIDDEN
+        } else if (nextMode === SIDE_PANEL_MODES.CATALOG || nextMode === SIDE_PANEL_MODES.WISHLIST) {
           nextMode = SIDE_PANEL_MODES.GAMES
         }
         setSidebarMode(nextMode)
-        setLibraryMode('local')
+        // A stored view wins over the usual local-library boot; without one
+        // there is nothing to restore, so keep the default startup view.
+        if (!hadSavedHistoryRef.current) setLibraryMode('local')
+        // An early user toggle already settled this, so leave it alone.
+        if (!filterSidebarTouchedRef.current && config?.Interface?.showFilterSidebar === true) {
+          setShowSearchSidebar(true)
+        }
+        if (!configReadyRef.current && bootSnapshotRef.current) {
+          configReadyRef.current = true
+          applySnapshot(bootSnapshotRef.current)
+        }
       })
       .catch(() => setSidebarMode(SIDE_PANEL_MODES.GAMES))
 
@@ -1993,20 +2115,6 @@ const App = () => {
     requestAnimationFrame(() => debounceResize())
   }, [showLibrarySidebar, showSearchSidebar, filterSidebarMode, filterSidebarSide, libraryMode])
 
-  // In 'inline' mode the filter sidebar is docked (shares space with the
-  // grid) rather than a toggle-on-demand overlay, so it should be visible
-  // whenever inline is the active mode — selecting inline is itself the
-  // request to show it. Runs when the mode becomes inline (or a game is
-  // deselected back to the library while inline), not continuously, so the
-  // Close button in the panel still works: closing sets showSearchSidebar
-  // false and this won't re-fire until the mode changes again. Overlay
-  // mode keeps its original toggle-driven behavior.
-  useEffect(() => {
-    if (filterSidebarMode === 'inline' && !selectedGame) {
-      setShowSearchSidebar(true)
-    }
-  }, [filterSidebarMode, selectedGame])
-
   // Search input already debounces via useDebouncedSearch (SearchBox/
   // SearchSidebar) before activeFilters updates, so debouncing again here
   // would stack an extra delay before the spinner shows. Fetch immediately
@@ -2092,6 +2200,98 @@ const App = () => {
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [selectedGame, goBackToLibrary])
 
+  // Bindings arrive at boot and again whenever Settings saves them. The
+  // preload subscription returns an unsubscribe scoped to this window.
+  useEffect(() => {
+    const unsubscribeShortcuts = window.electronAPI?.onShortcutsChanged?.((bindings) => {
+      setShortcutBindings(readBindings(bindings))
+    })
+    return () => unsubscribeShortcuts?.()
+  }, [])
+
+  const runShortcut = useCallback((actionId) => {
+    if (actionId.startsWith(SETTINGS_PAGE_PREFIX)) {
+      const tab = actionId.slice(SETTINGS_PAGE_PREFIX.length)
+      if (visibleSettingsPages.has(tab)) window.electronAPI.openSettings?.({ tab })
+      return
+    }
+    switch (actionId) {
+      case 'openViewLibrary': goHome(); break
+      case 'openViewBrowse': browseCatalog(); break
+      case 'openViewFavorites': openFavorites(); break
+      case 'openViewWishlist': openWishlist(); break
+      case 'openViewCollections': openCollections(); break
+      case 'openViewDownloads': openDownloads(); break
+      case 'navigateBack': handleGoBack(); break
+      case 'navigateForward': handleGoForward(); break
+      case 'focusSearch':
+        setSearchFocusSignal((value) => value + 1)
+        break
+      case 'toggleFilterSidebar': toggleSearchSidebar(); break
+      case 'toggleGameList': toggleGameList(); break
+      case 'wishlistCurrentGame': {
+        if (!selectedGame || !canToggleWishlist(selectedGame)) break
+        runGameContextAction({ ...buildWishlistPayload(selectedGame), action: 'toggleWishlist' })
+        break
+      }
+      case 'blacklistCurrentGame': {
+        if (!selectedGame || isGameInstalled(selectedGame)) break
+        runGameContextAction({
+          ...buildWishlistPayload(selectedGame),
+          ...(selectedGame.gog_id !== undefined ? { gog_id: selectedGame.gog_id } : {}),
+          action: 'blacklistGame',
+        })
+        break
+      }
+      case 'installCurrentGame':
+        if (!selectedGame || isGameInstalled(selectedGame)) break
+        openUpdateModal(selectedGame)
+        break
+      case 'openImporter': window.electronAPI.openImporter?.('atlas'); break
+      case 'importManually': window.electronAPI.openImporter?.('manual'); break
+      case 'quit': window.electronAPI.quitApp?.(); break
+      case 'openSettings': window.electronAPI.openSettings?.(); break
+      default: break
+    }
+  }, [
+    goHome, browseCatalog, openFavorites, openWishlist, openCollections, openDownloads,
+    handleGoBack, handleGoForward, toggleSearchSidebar, toggleGameList,
+    selectedGame, runGameContextAction, openUpdateModal,
+  ])
+
+  // Bare reserved keys and text-entry targets belong to the browser and the
+  // Backspace handler above; only a bound combo reaches runShortcut.
+  useEffect(() => {
+    const handleShortcutKeyDown = (event) => {
+      if (event.defaultPrevented) return
+      if (event.repeat) return
+      if (isTextInputTarget(event.target)) return
+      const combo = comboFromEvent(event)
+      if (!combo) return
+      const actionId = shortcutIndex[combo]
+      if (!actionId) return
+      event.preventDefault()
+      runShortcut(actionId)
+    }
+    window.addEventListener('keydown', handleShortcutKeyDown)
+    return () => window.removeEventListener('keydown', handleShortcutKeyDown)
+  }, [shortcutIndex, runShortcut])
+
+  // Capture phase so a bound back/forward button never reaches Chromium's
+  // native history navigation.
+  useEffect(() => {
+    const handleShortcutMouseDown = (event) => {
+      const combo = comboFromMouseEvent(event)
+      if (!combo) return
+      const actionId = shortcutIndex[combo]
+      if (!actionId) return
+      event.preventDefault()
+      runShortcut(actionId)
+    }
+    window.addEventListener('mousedown', handleShortcutMouseDown, true)
+    return () => window.removeEventListener('mousedown', handleShortcutMouseDown, true)
+  }, [shortcutIndex, runShortcut])
+
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <div className="flex flex-col h-screen font-sans text-[13px] overflow-hidden">
@@ -2144,15 +2344,17 @@ const App = () => {
           )}
           <div className="w-full flex h-[70px] items-center">
             {!isTopNav && (
-              <div className="flex items-center ml-5">
-                <div
-                  className="text-shadow-fx text-glow-fx page-titles text-accent font-semibold cursor-pointer -webkit-app-region-no-drag"
-                  onClick={goHome}
-                  title="Home"
-                >
-                  {viewTitle}
+              <>
+                <div className="flex items-center ml-5">
+                  <div
+                    className="text-shadow-fx text-glow-fx page-titles text-accent font-semibold cursor-pointer -webkit-app-region-no-drag"
+                    onClick={goHome}
+                    title="Home"
+                  >
+                    {viewTitle}
+                  </div>
                 </div>
-              </div>
+              </>
             )}
             {isTopNav ? (
               <>
@@ -2180,6 +2382,8 @@ const App = () => {
                     favoritesActive={favoritesActive}
                     collectionsActive={collectionsActive}
                     browseAvailable={browseAvailable}
+                    onOpenDownloads={openDownloads}
+                    downloadsActive={libraryView === 'downloads'}
                   />
                 </div>
                 <div className="flex-1" />
@@ -2212,6 +2416,8 @@ const App = () => {
                     favoritesActive={favoritesActive}
                     collectionsActive={collectionsActive}
                     browseAvailable={browseAvailable}
+                    onOpenDownloads={openDownloads}
+                    downloadsActive={libraryView === 'downloads'}
                   />
                   <button
                     type="button"
@@ -2298,7 +2504,9 @@ const App = () => {
             onToggleSearchSidebar={toggleSearchSidebar}
             onOpenAbout={openAbout}
             onOpenCollections={openCollections}
+            onOpenDownloads={openDownloads}
             collectionsActive={collectionsActive}
+            downloadsActive={libraryView === 'downloads'}
             showGameList={showGameList}
             libraryMode={libraryMode}
             favoritesActive={favoritesActive}
@@ -2306,9 +2514,9 @@ const App = () => {
           />
         )}
 
-        {showGameList && (
+        {showGameListInView && (
           <div
-            className={`w-[200px] bg-secondary fixed top-[70px] bottom-[40px] z-40 overflow-y-auto ${isTopNav ? '' : 'ml-[60px]'}`}
+            className={`w-[300px] bg-secondary fixed top-[70px] bottom-[40px] z-40 overflow-y-auto ${isTopNav ? '' : 'ml-[60px]'}`}
             style={{ borderRight: '1px solid var(--color-border)' }}
           >
             <GameTree
@@ -2343,13 +2551,13 @@ const App = () => {
             #gameGrid (sharing horizontal space), so its DOM position
             relative to #gameGrid — rendered before vs. after — is what
             puts it on the left or right. When inline+left in sidebar
-            layout, it needs the SAME ml-[60px]/ml-[260px] left offset
+            layout, it needs the SAME ml-[60px]/ml-[360px] left offset
             #gameGrid uses below, since Sidebar.jsx and the library-list
             panel are both `fixed` (out of flex flow) — without this
             margin the inline panel would render underneath them instead
             of after them. */}
-        {showSearchSidebar && !selectedGame && filterSidebarMode === 'inline' && filterSidebarSide === 'left' && (
-          <div className={isTopNav ? (showLibrarySidebar ? 'ml-[200px]' : '') : showLibrarySidebar ? 'ml-[260px]' : 'ml-[60px]'}>
+        {showSearchSidebarInView && !selectedGame && filterSidebarMode === 'inline' && filterSidebarSide === 'left' && (
+          <div className={isTopNav ? (showLibrarySidebarInView ? 'ml-[300px]' : '') : showLibrarySidebarInView ? 'ml-[360px]' : 'ml-[60px]'}>
             <SearchSidebar
               isVisible={showSearchSidebar}
               searchText={activeFilters.text}
@@ -2369,7 +2577,7 @@ const App = () => {
               onApplySavedFilter={applySavedFilter}
               onDeleteSavedFilter={deleteSavedFilter}
               resetInputSignal={resetInputSignal}
-              onClose={() => setShowSearchSidebar(false)}
+              onClose={() => setAndPersistFilterSidebar(false)}
             />
           </div>
         )}
@@ -2378,15 +2586,15 @@ const App = () => {
           id="gameGrid"
           className={`flex-1 min-h-0 flex flex-col bg-library ${
             isTopNav
-              ? (showLibrarySidebar && !(showSearchSidebar && filterSidebarMode === 'inline' && filterSidebarSide === 'left' && !selectedGame) ? 'ml-[200px]' : '')
+              ? (showLibrarySidebarInView && !(showSearchSidebarInView && filterSidebarMode === 'inline' && filterSidebarSide === 'left' && !selectedGame) ? 'ml-[300px]' : '')
               // When the inline-left filter sidebar is showing, IT already
-              // carries the ml-[60px]/ml-[260px] offset (see above) to
+              // carries the ml-[60px]/ml-[360px] offset (see above) to
               // clear the fixed Sidebar/library-list panel — applying the
               // same margin here too would double it up as an extra gap
               // between the filter panel and the grid.
-              : (showSearchSidebar && filterSidebarMode === 'inline' && filterSidebarSide === 'left' && !selectedGame)
+              : (showSearchSidebarInView && filterSidebarMode === 'inline' && filterSidebarSide === 'left' && !selectedGame)
                 ? ''
-                : showLibrarySidebar ? 'ml-[260px]' : 'ml-[60px]'
+                : showLibrarySidebarInView ? 'ml-[360px]' : 'ml-[60px]'
           }`}
           ref={gameGridRef}
           // This element does NOT scroll. It used to, while the virtualized
@@ -2689,7 +2897,7 @@ const App = () => {
           )}
         </div>
 
-        {showSearchSidebar && !selectedGame && filterSidebarMode === 'inline' && filterSidebarSide === 'right' && (
+        {showSearchSidebarInView && !selectedGame && filterSidebarMode === 'inline' && filterSidebarSide === 'right' && (
           <SearchSidebar
             isVisible={showSearchSidebar}
             searchText={activeFilters.text}
@@ -2709,11 +2917,11 @@ const App = () => {
             onApplySavedFilter={applySavedFilter}
             onDeleteSavedFilter={deleteSavedFilter}
             resetInputSignal={resetInputSignal}
-            onClose={() => setShowSearchSidebar(false)}
+            onClose={() => setAndPersistFilterSidebar(false)}
           />
         )}
 
-        {showSearchSidebar && !selectedGame && filterSidebarMode !== 'inline' && (
+        {showSearchSidebarInView && !selectedGame && filterSidebarMode !== 'inline' && (
           <SearchSidebar
             isVisible={showSearchSidebar}
             searchText={activeFilters.text}
@@ -2733,7 +2941,7 @@ const App = () => {
             onApplySavedFilter={applySavedFilter}
             onDeleteSavedFilter={deleteSavedFilter}
             resetInputSignal={resetInputSignal}
-            onClose={() => setShowSearchSidebar(false)}
+            onClose={() => setAndPersistFilterSidebar(false)}
           />
         )}
       </div>

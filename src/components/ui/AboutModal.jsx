@@ -11,6 +11,7 @@
 // (same pattern used by the game-details external links).
 
 import { useState } from 'react'
+import { useEscapeKey } from '../../hooks/useEscapeKey.js'
 import atlasLogoUrl from '../../assets/images/atlas_logo_full.svg'
 import { LINKS } from '../../utils/links.js'
 
@@ -78,6 +79,8 @@ const LinkRow = ({ label, description, onClick, icon }) => (
 
 const AboutModal = ({ open, onClose, version, onReplayTour }) => {
   const [showLicenses, setShowLicenses] = useState(false)
+  useEscapeKey(onClose, open)
+
   if (!open) return null
 
   return (

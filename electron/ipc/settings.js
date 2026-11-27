@@ -213,6 +213,7 @@ module.exports = function registerSettingsHandlers(ctx) {
       const previousAppearance = ctx.appConfig?.Appearance
       const previousInterface = ctx.appConfig?.Interface
       const previousMetadata = ctx.appConfig?.Metadata
+      const previousBindings = ctx.appConfig?.Shortcuts?.bindings
       // Merge over the live config rather than replacing it outright. Every
       // renderer save path spreads the whole object it got from getConfig(), so
       // a single missing section used to wipe that section from disk. Even with
@@ -244,6 +245,17 @@ module.exports = function registerSettingsHandlers(ctx) {
       if (appearanceChanged && nextAppearance) {
         BrowserWindow.getAllWindows().forEach((win) => {
           if (!win.isDestroyed()) win.webContents.send('appearance-changed', nextAppearance)
+        })
+      }
+
+      // Bindings live in renderer state after launch, so a save would otherwise
+      // only take effect on restart. Send the persisted string so every window
+      // can rebuild its shortcut index. The empty default picks up the shipped
+      // bindings; an object with emptied rows is an explicit clear.
+      const nextBindings = nextSettings?.Shortcuts?.bindings
+      if (previousBindings !== nextBindings) {
+        BrowserWindow.getAllWindows().forEach((win) => {
+          if (!win.isDestroyed()) win.webContents.send('shortcuts-changed', nextBindings)
         })
       }
 

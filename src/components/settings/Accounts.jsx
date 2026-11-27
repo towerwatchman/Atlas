@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
+import { useEscapeKey } from '../../hooks/useEscapeKey.js'
 import SteamConnect from './SteamConnect.jsx'
 import DownloadAccounts from './DownloadAccounts.jsx'
 
@@ -241,6 +242,8 @@ const AddAccountModal = ({ sites, initialSite = null, onClose, onSaved }) => {
   const [verified, setVerified] = useState(false)
   const [verify, setVerify] = useState({ status: 'idle', message: '' })
   const [saving, setSaving] = useState(false)
+
+  useEscapeKey(onClose)
 
   const busy = verify.status === 'verifying' || saving
   const canVerify = site && username.trim() && password && !busy

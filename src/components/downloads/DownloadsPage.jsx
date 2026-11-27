@@ -46,6 +46,16 @@ const ACTIVE_STATES = ['downloading', 'verifying', 'extracting', 'importing']
 const WAITING_STATES = ['queued', 'paused', 'awaiting_file', 'failed', 'install_failed', 'ready']
 const FINISHED_STATES = ['done', 'canceled']
 
+// Item events carry one row at a time, not a full ordered list. Re-sort on each
+// event to keep the rendered order equal to what listDownloads returns.
+const sortItems = (list) => list.slice().sort((a, b) => {
+  const aDone = FINISHED_STATES.includes(a.state) ? 1 : 0
+  const bDone = FINISHED_STATES.includes(b.state) ? 1 : 0
+  if (aDone !== bDone) return aDone - bDone
+  const order = (a.queueOrder || 0) - (b.queueOrder || 0)
+  return order || (a.id || 0) - (b.id || 0)
+})
+
 // How long the scrollbar stays up after the last scroll event, or after the
 // cursor leaves the scroll zone. Long enough that a pause mid-scroll or a small
 // overshoot past the edge does not flicker it, short enough that it does not
@@ -178,17 +188,41 @@ const Cover = memo(function Cover({ game, item, title }) {
 // render body is a brand new type every render, so React remounts its whole
 // subtree rather than updating it - which reloads banners and restarts
 // animations. That was the cause of the flashing GIFs.
-function Section({ title, count, children, action }) {
+function Section({ title, count, children, action, collapsed = false, onToggle, onReverse, sectionId, stuck = false }) {
   return (
-    <section className="mt-6 first:mt-0">
-      <div className="flex items-center gap-3">
-        <h2 className="text-lg text-text whitespace-nowrap">
-          {title} <span className="text-muted text-base">({count})</span>
+    <section>
+      {/* The tall fill belongs only to a stuck header; otherwise it paints over the previous section's last row. */}
+      <div data-section-header={sectionId} className={`sticky top-0 z-20 -mx-4 px-4 sm:-mx-6 sm:px-6 bg-secondary pt-2 flex items-center gap-3 relative before:absolute before:inset-x-0 before:bottom-full ${stuck ? 'before:h-16' : 'before:h-2'} before:bg-secondary before:content-['']`}>
+        <h2 className="text-lg text-text whitespace-nowrap flex items-center gap-2">
+          {onToggle ? (
+            <button
+              type="button"
+              onClick={onToggle}
+              aria-label={`${collapsed ? 'Expand' : 'Collapse'} ${title}`}
+              className="flex items-center gap-1 text-lg text-text whitespace-nowrap"
+            >
+              {title} <span className="text-muted text-base">({count})</span>
+              <i className={`fas fa-chevron-${collapsed ? 'down' : 'up'} text-xs text-muted`} aria-hidden="true" />
+            </button>
+          ) : (
+            <>{title} <span className="text-muted text-base">({count})</span></>
+          )}
+          {onReverse && (
+            <button
+              type="button"
+              onClick={onReverse}
+              aria-label={`Reverse ${title} order`}
+              title={`Reverse ${title} order`}
+              className="h-7 w-7 inline-flex items-center justify-center rounded hover:bg-tertiary text-muted hover:text-text"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-arrow-up-down"><path d="m21 16-4 4-4-4"/><path d="M17 20V4"/><path d="m3 8 4-4 4 4"/><path d="M7 4v16"/></svg>
+            </button>
+          )}
         </h2>
         <div className="flex-1 h-px bg-border" />
         {action}
       </div>
-      <div className="mt-2">{children}</div>
+      {!collapsed && <div className="mt-[13px]">{children}</div>}
     </section>
   )
 }
@@ -335,6 +369,56 @@ export default function DownloadsPage({ gamesByRecordId = new Map(), onOpenGame,
   const [speedHistory, setSpeedHistory] = useState(() => new Array(60).fill(0))
 
   const [showScrollbar, setShowScrollbar] = useState(false)
+  // Session-only: a drag that never drops must not touch the persisted order.
+  const [previewIds, setPreviewIds] = useState(null)
+  // The commit frame must snap into place; the transition is only for the drag preview.
+  const [settling, setSettling] = useState(false)
+  // Native drag leaves :hover stuck. The landing slot keeps an inline
+  // highlight until an ordinary mouse move gives hover back to CSS.
+  const [highlightSlot, setHighlightSlot] = useState(null)
+  // A native mousemove fires right after a drop. Ignore clears for a short
+  // window so the slot highlight survives it, then let CSS hover take over.
+  const suppressMouseMoveUntilRef = useRef(0)
+  // Chromium hides dataTransfer data during dragover. The hover preview
+  // reads the dragged id from here; drop still uses the transfer payload.
+  const draggedIdRef = useRef(null)
+  // Row boxes captured at drag start. Hit-testing against these stays stable
+  // while the preview shifts rows visually. The target never becomes the
+  // dragged row the way it did when native dragover followed the reordered DOM.
+  const rowRectsRef = useRef([])
+  // The captured tops are viewport-relative. Pointer Y needs the change in
+  // scroll position since the boxes were taken before it can hit-test them.
+  const scrollTopRef = useRef(0)
+  const scrollRef = useRef(null)
+  const [stuckHeader, setStuckHeader] = useState(null)
+  // Collapse is session-only; the order itself is persisted by the reorder IPC.
+  const [collapsed, setCollapsed] = useState({ upNext: false, completed: false })
+
+  // A header counts as stuck only when it sits at the scroller's top padding.
+  const refreshStuckHeader = useCallback(() => {
+    const scroller = scrollRef.current
+    if (!scroller) return
+    const stuckTop = scroller.getBoundingClientRect().top + 8
+    const header = [...scroller.querySelectorAll('[data-section-header]')].find((element) =>
+      Math.abs(element.getBoundingClientRect().top - stuckTop) <= 1,
+    )
+    setStuckHeader(header?.dataset.sectionHeader ?? null)
+  }, [])
+
+  const toggleSection = (key) => {
+    setCollapsed((prev) => ({ ...prev, [key]: !prev[key] }))
+    // A shorter section may not clamp scrollTop, leaving its sticky header
+    // above the pane. Pull it back after layout.
+    requestAnimationFrame(() => {
+      const scroller = scrollRef.current
+      const header = scroller?.querySelector(`[data-section-header="${key}"]`)
+      if (header) {
+        const delta = header.getBoundingClientRect().top - scroller.getBoundingClientRect().top
+        if (delta < 0) scroller.scrollTop += delta
+      }
+      refreshStuckHeader()
+    })
+  }
 
   const refresh = useCallback(async () => {
     try {
@@ -365,10 +449,10 @@ export default function DownloadsPage({ gamesByRecordId = new Map(), onOpenGame,
       if (!item?.id) return
       setItems((prev) => {
         const index = prev.findIndex((entry) => entry.id === item.id)
-        if (index === -1) return [...prev, item]
+        if (index === -1) return sortItems([...prev, item])
         const next = prev.slice()
         next[index] = item
-        return next
+        return sortItems(next)
       })
       const previous = samplesRef.current.get(item.id)
       const stamp = Date.now()
@@ -455,8 +539,9 @@ export default function DownloadsPage({ gamesByRecordId = new Map(), onOpenGame,
   const handleScroll = useCallback(() => {
     scrollingRef.current = true
     updateVisibility()
+    refreshStuckHeader()
     scheduleHide(() => { scrollingRef.current = false })
-  }, [updateVisibility, scheduleHide])
+  }, [updateVisibility, scheduleHide, refreshStuckHeader])
 
   const handleMouseMove = useCallback((e) => {
     const rect = e.currentTarget.getBoundingClientRect()
@@ -502,23 +587,121 @@ export default function DownloadsPage({ gamesByRecordId = new Map(), onOpenGame,
     finished: items.filter((item) => FINISHED_STATES.includes(item.state)),
   }), [items])
 
+  // A section can vanish without a scroll (Clear All), leaving its header
+  // flagged after it unmounts. Recompute once layout settles.
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => refreshStuckHeader())
+    return () => cancelAnimationFrame(frame)
+  }, [current.length, upNext.length, finished.length, collapsed, refreshStuckHeader])
+
   // Combined throughput across live transfers, plus a session peak. Peak is
   // kept in a ref so it survives re-renders without becoming state churn.
   const totalRate = current.reduce((sum, item) => sum + (rates[item.id] || 0), 0)
   if (totalRate > peakRef.current) peakRef.current = totalRate
 
-  const move = async (id, direction) => {
-    const ordered = [...current, ...upNext].map((item) => item.id)
-    const index = ordered.indexOf(id)
-    const target = index + direction
-    if (index === -1 || target < 0 || target >= ordered.length) return
-    const next = ordered.slice()
-    ;[next[index], next[target]] = [next[target], next[index]]
-    await window.electronAPI.downloadsReorder?.({ ids: next })
-    refresh()
+  const commitOrder = async (ids) => {
+    await window.electronAPI.downloadsReorder?.({ ids })
+    // Read the rewritten order before the next action can use it.
+    await refresh()
   }
 
-  const renderItem = (item, { featured = false } = {}) => {
+  const reverseOrder = (ids) => commitOrder([...ids].reverse())
+
+  // Preview and drop share this so the rows shift to exactly where the
+  // released order will put them. Reading upNext (not the preview) keeps the
+  // result aligned with what is stored after a Reverse or a live event.
+  const proposeOrder = (draggedId, targetId) => {
+    if (!Number.isInteger(draggedId)) return null
+    const ids = upNext.map((row) => row.id)
+    if (!ids.includes(draggedId) || draggedId === targetId) return null
+    const next = ids.filter((id) => id !== draggedId)
+    if (!next.includes(targetId)) return null
+    // A downward drag starts above the target and must land after it.
+    // Inserting before would leave the order unchanged until the next row.
+    const afterTarget = ids.indexOf(draggedId) < ids.indexOf(targetId)
+    next.splice(next.indexOf(targetId) + (afterTarget ? 1 : 0), 0, draggedId)
+    if (next.every((id, index) => id === ids[index])) return null
+    return next
+  }
+
+  // Geometry comes from the boxes captured when the drag began, not from the
+  // element under the pointer: during a preview the DOM keeps its order while
+  // rows move visually. Hit-testing the live element picks the dragged row.
+  const targetFromPointer = (clientY) => {
+    const rows = rowRectsRef.current
+    const scrollDelta = (scrollRef.current?.scrollTop || 0) - scrollTopRef.current
+    const y = clientY + scrollDelta
+    let target = null
+    if (rows.length) {
+      target = y < rows[0].top
+        ? rows[0].id
+        : rows.find((row) => y >= row.top && y < row.top + row.pitch)?.id
+          ?? rows[rows.length - 1].id
+    }
+    return target
+  }
+
+  // Each row stays in its committed slot and travels to the slot it will hold
+  // after the drop. Distances are the captured slot pitches (top to next top),
+  // which include the gap between rows. Rows land where the drop puts them.
+  const pitchById = new Map(rowRectsRef.current.map(({ id, pitch }) => [id, pitch]))
+  const displayIds = previewIds || upNext.map((row) => row.id)
+  const offsetFor = (item, pitches) => {
+    if (!previewIds) return 0
+    const committed = upNext.map((row) => row.id)
+    const from = committed.indexOf(item.id)
+    const to = previewIds.indexOf(item.id)
+    if (from < 0 || to < 0) return 0
+    const pitchOf = (id) => pitches.get(id) || 0
+    const slotTop = (ids, index) => ids.slice(0, index).reduce((sum, id) => sum + pitchOf(id), 0)
+    return slotTop(previewIds, to) - slotTop(committed, from)
+  }
+
+  useEffect(() => {
+    if (!settling) return
+    const frame = requestAnimationFrame(() => setSettling(false))
+    return () => cancelAnimationFrame(frame)
+  }, [settling])
+
+  const handleDragOver = (event) => {
+    event.preventDefault()
+    if (!previewIds) return
+    const targetId = targetFromPointer(event.clientY)
+    setHighlightSlot(upNext.findIndex((row) => row.id === targetId))
+    const next = proposeOrder(draggedIdRef.current, targetId)
+    if (!next) return
+    setPreviewIds((prev) => (
+      prev && prev.length === next.length && next.every((id, index) => id === prev[index])
+        ? prev
+        : next
+    ))
+  }
+
+  const handleDrop = (event) => {
+    event.preventDefault()
+    const draggedId = Number(event.dataTransfer.getData('text/plain'))
+    const targetId = targetFromPointer(event.clientY)
+    const committed = upNext.map((row) => row.id)
+    const targetIndex = committed.indexOf(targetId)
+    const next = proposeOrder(draggedId, targetId)
+    suppressMouseMoveUntilRef.current = performance.now() + 300
+    setHighlightSlot(targetIndex)
+    if (next) {
+      // Show the dropped order while the IPC and its refresh are still in flight.
+      setItems((prev) => {
+        const byId = new Map(prev.map((item) => [item.id, item]))
+        const moved = next.map((id, index) => ({ ...byId.get(id), queueOrder: index + 1 }))
+        return sortItems([...moved, ...prev.filter((item) => !next.includes(item.id))])
+      })
+      commitOrder(next)
+    }
+    setSettling(true)
+    setPreviewIds(null)
+    rowRectsRef.current = []
+    draggedIdRef.current = null
+  }
+
+  const renderItem = (item, { featured = false, draggable = false } = {}) => {
     // gamesByRecordId is a Map keyed by Number(record_id), not a plain object.
     // Bracket access on a Map silently returns undefined, which is why the
     // cover art never appeared.
@@ -542,6 +725,17 @@ export default function DownloadsPage({ gamesByRecordId = new Map(), onOpenGame,
     return (
       <div
         key={item.id}
+        data-download-row={draggable ? item.id : undefined}
+        style={draggable ? {
+          transform: `translateY(${offsetFor(item, pitchById)}px)`,
+          transition: settling || (previewIds && draggedIdRef.current === item.id)
+            ? 'none'
+            : 'transform 180ms ease',
+          ...(highlightSlot === displayIds.indexOf(item.id) ? {
+            backgroundColor: 'var(--color-selected)',
+            boxShadow: 'inset 0 0 0 1px var(--color-accent)',
+          } : {}),
+        } : undefined}
         className="group flex items-center gap-3 sm:gap-4 p-3 mb-2 rounded-lg border border-border bg-secondary transition-colors cursor-default hover:bg-selected hover:border-accent"
       >
         <button
@@ -671,6 +865,50 @@ export default function DownloadsPage({ gamesByRecordId = new Map(), onOpenGame,
         </div>
 
         <div className="flex items-center shrink-0">
+          {draggable && (
+            <button
+              type="button"
+              draggable
+              title="Drag to reorder"
+              aria-label="Drag to reorder"
+              onDragStart={(event) => {
+                event.dataTransfer.setData('text/plain', String(item.id))
+                event.dataTransfer.effectAllowed = 'move'
+                draggedIdRef.current = item.id
+                scrollTopRef.current = scrollRef.current?.scrollTop || 0
+                const rows = [...document.querySelectorAll('[data-download-row]')]
+                const grabbedRow = rows.find((row) => Number(row.dataset.downloadRow) === item.id)
+                if (grabbedRow) {
+                  const rect = grabbedRow.getBoundingClientRect()
+                  event.dataTransfer.setDragImage?.(
+                    grabbedRow, event.clientX - rect.left, event.clientY - rect.top,
+                  )
+                }
+                rowRectsRef.current = rows.map((row, index) => {
+                  const rect = row.getBoundingClientRect()
+                  const nextTop = rows[index + 1]?.getBoundingClientRect().top
+                  const margin = parseFloat(getComputedStyle(row).marginBottom) || 0
+                  return {
+                    id: Number(row.dataset.downloadRow),
+                    top: rect.top,
+                    pitch: nextTop === undefined ? rect.height + margin : nextTop - rect.top,
+                  }
+                })
+                setPreviewIds(upNext.map((row) => row.id))
+              }}
+              onDragEnd={() => {
+                setPreviewIds(null)
+                // A drop picked the landing slot; keep its highlight until the
+                // mousemove guard expires and CSS hover takes over.
+                if (performance.now() >= suppressMouseMoveUntilRef.current) setHighlightSlot(null)
+                rowRectsRef.current = []
+                draggedIdRef.current = null
+              }}
+              className="h-8 w-8 inline-flex items-center justify-center rounded hover:bg-tertiary disabled:opacity-40 disabled:cursor-not-allowed text-muted hover:text-text"
+            >
+              <i className="fas fa-grip-vertical text-sm" aria-hidden="true"></i>
+            </button>
+          )}
           {transferring && (
             <Action icon="fa-pause" title="Pause" onClick={() => act('pause', item.id)} disabled={busyId === item.id} />
           )}
@@ -699,12 +937,6 @@ export default function DownloadsPage({ gamesByRecordId = new Map(), onOpenGame,
             >
               Install
             </button>
-          )}
-          {WAITING_STATES.includes(item.state) && (
-            <>
-              <Action icon="fa-chevron-up" title="Move up" onClick={() => move(item.id, -1)} />
-              <Action icon="fa-chevron-down" title="Move down" onClick={() => move(item.id, 1)} />
-            </>
           )}
           {item.state === 'done' && item.filePath && (
             <Action icon="fa-folder-open" title="Show in folder"
@@ -763,10 +995,11 @@ export default function DownloadsPage({ gamesByRecordId = new Map(), onOpenGame,
       </div>
 
       <div
+        ref={scrollRef}
         onScroll={handleScroll}
         onMouseMove={handleMouseMove}
         onMouseLeave={handleMouseLeave}
-        className={`flex-1 min-h-0 overflow-y-auto downloads-scroll px-4 sm:px-6 py-4 pb-10${showScrollbar ? ' scrollbar-visible' : ''}`}
+        className={`flex-1 min-h-0 overflow-y-auto downloads-scroll px-4 sm:px-6 pt-2 pb-10${showScrollbar ? ' scrollbar-visible' : ''}`}
       >
 
         {items.length === 0 && (
@@ -780,16 +1013,47 @@ export default function DownloadsPage({ gamesByRecordId = new Map(), onOpenGame,
         )}
 
         {current.length > 0 && (
-          <Section title="In progress" count={current.length}>
+          <Section title="In progress" count={current.length} sectionId="inProgress" stuck={stuckHeader === 'inProgress'}>
             {current.map((item) => renderItem(item, { featured: true }))}
           </Section>
         )}
 
         {(upNext.length > 0 || current.length > 0) && (
-          <Section title="Up next" count={upNext.length}>
-            {upNext.length > 0
-              ? upNext.map((item) => renderItem(item))
-              : <p className="py-3 text-sm text-muted">There are no downloads in the queue</p>}
+          <Section
+            title="Up next"
+            count={upNext.length}
+            sectionId="upNext"
+            stuck={stuckHeader === 'upNext'}
+            collapsed={collapsed.upNext}
+            onToggle={() => toggleSection('upNext')}
+            onReverse={upNext.length > 0
+              ? () => reverseOrder(upNext.map((item) => item.id))
+              : undefined}
+          >
+            <div
+              // Native drag leaves :hover stuck on the grabbed row, and Chromium
+              // does not recompute it until a real mouse move. Keep the scoped
+              // rule on through the post-drop slot highlight as well.
+              className={previewIds || highlightSlot !== null ? 'downloads-dragging' : undefined}
+              onDragOver={handleDragOver}
+              onDrop={handleDrop}
+              onMouseMove={() => {
+                if (previewIds) return
+                if (performance.now() < suppressMouseMoveUntilRef.current) return
+                suppressMouseMoveUntilRef.current = 0
+                setHighlightSlot(null)
+              }}
+              onMouseLeave={() => {
+                if (previewIds) return
+                if (performance.now() < suppressMouseMoveUntilRef.current) return
+                suppressMouseMoveUntilRef.current = 0
+                setHighlightSlot(null)
+              }}
+            >
+              {upNext.length > 0
+                ? upNext.map((item) => renderItem(item, { draggable: true }))
+                : <p className="py-3 text-sm text-muted">There are no downloads in the queue</p>}
+            </div>
           </Section>
         )}
 
@@ -797,6 +1061,10 @@ export default function DownloadsPage({ gamesByRecordId = new Map(), onOpenGame,
           <Section
             title="Completed"
             count={finished.length}
+            sectionId="completed"
+            stuck={stuckHeader === 'completed'}
+            collapsed={collapsed.completed}
+            onToggle={() => toggleSection('completed')}
             action={(
               <button
                 type="button"

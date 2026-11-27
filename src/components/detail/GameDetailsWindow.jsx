@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useTagState } from '../../hooks/useTagState.js'
+import { useEscapeKey } from '../../hooks/useEscapeKey.js'
 import WindowTitleBar from '../ui/WindowTitleBar.jsx'
 import RecordTab from './window/RecordTab.jsx'
 import VersionsTab from './window/VersionsTab.jsx'
@@ -214,6 +215,10 @@ const GameDetailWindow = () => {
   const dataHandledRef = useRef(false)
   const retryLoadRef = useRef(null)
   const sizeRefreshKeyRef = useRef(new Set())
+
+  useEscapeKey(() => { setShowModal(false); setSearchResults([]) }, showModal)
+  // The version input handles Escape only while it has focus.
+  useEscapeKey(() => { if (!addVersionBusy) setAddVersionDraft(null) }, Boolean(addVersionDraft))
 
   // ── Helpers ──────────────────────────────────────────────────────────────
   // Show a simple in-app alert modal (single OK button).
