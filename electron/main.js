@@ -98,8 +98,8 @@ const {
   addAtlasMapping, getAtlasData, getImportRecordStatus, insertJsonData,
   recomputeNormalizedTitles,
 } = require('./db/atlas')
-const { getCatalogIndexStatus, rebuildCatalogIndex } = require('./db/catalogIndex')
-const { isWriteLockBusy, activeWriteLockLabel } = require('./db/writeLock')
+const { bootstrapLastSeenWatermarks } = require('./db/catalogIndex')
+const { runBackgroundCatalogIndexRebuild } = require('./db/catalogIndexBackground')
 const { buildDefaultConfig, mergeWithDefaults } = require('./config/configSchema')
 // Shared across main.js, ipc/importer.js and ipc/games.js. Was a local Map here
 // passed through ctx, which module-level functions in importer.js could not
@@ -137,7 +137,7 @@ const { startScan } = require('./scanners/f95scanner')
 const { deletePathWithElevationFallback } = require('./deleteUtils')
 
 // IPC domain modules
-const { registerGamesHandlers } = require('./ipc/games')
+const { registerGamesHandlers, broadcastGameDeleted } = require('./ipc/games')
 const registerWindowsHandlers = require('./ipc/windows')
 const registerSettingsHandlers = require('./ipc/settings')
 const registerUpdaterHandlers = require('./ipc/updater')
@@ -344,24 +344,9 @@ function registerLewdCornerMediaHeaders() {
   registerMediaAuthHeaders()
 }
 
-// Dev-only diagnostic for the LewdCorner tier check. When verifyLcTier()
-// reports lcTierMismatch, the LewdCorner shop page parser read no owned
-// rank but the thread probe — which reflects real content access — concluded
-// the user is Plus. That mismatch is the stale-selector signal: the class and
-// owned text in electron/config/lcTier.json likely no longer match LC's markup.
-// Gated on !app.isPackaged so it never
-// fires in a shipped build; the user-facing tier gate stays correct regardless
-// because the probe already resolved the real tier.
-function warnOnLcTierMismatch(result) {
+// Dev-only tier log; never fires in a shipped build.
+function logLcTierResult(result) {
   if (app.isPackaged || !result) return
-  if (result.lcTierMismatch === true) {
-    console.warn(
-      'LewdCorner shop parser looks stale: shop reported \'Free\' but ' +
-      'the thread probe confirmed real content access. Check the card and ' +
-      'buy-button selectors in electron/config/lcTier.json.',
-    )
-    return
-  }
   if (result.ok && result.tier) {
     const src = result.fromCache ? ' (cached)' : ''
     console.log(`LewdCorner tier: ${result.tier}${src}`)
@@ -969,9 +954,7 @@ async function deleteTitleRecord(recordId, { deleteFiles = false } = {}) {
     const result = await deleteGameCompletely(recordId, getAssetBasePath(), process.defaultApp)
     if (!result.success) return result
     recentlyDeleted.remember(recordId, versionPaths)
-    BrowserWindow.getAllWindows().forEach((win) => {
-      if (!win.isDestroyed()) win.webContents.send('game-deleted', recordId)
-    })
+    broadcastGameDeleted(recordId)
     return { success: true }
   } catch (err) {
     console.error('delete-title failed:', err)
@@ -2177,6 +2160,12 @@ app.whenReady().then(async () => {
   // Initialize database
   initializeDatabase(dataDir)
 
+  // Floors the Last Seen watermarks. They read MAX(atlas_id) from atlas_data,
+  // which the index rebuild never empties.
+  bootstrapLastSeenWatermarks().catch((err) =>
+    console.warn('last-seen watermark bootstrap failed:', err?.message),
+  )
+
   // Correct any normalized_title values computed by the old SQL migration (which
   // diverged from the JS import matcher on accented/non-Latin titles, breaking
   // import-to-atlas matching for non-English-region users). Deferred so it runs
@@ -2316,30 +2305,23 @@ app.whenReady().then(async () => {
   // hook) come up, then refresh any expired sessions in the background.
   try {
     accountStore.init(dataDir, appConfig?.LewdCorner)
-    accountStore.refreshAllAccounts().catch((err) =>
-      console.warn('Account cookie refresh failed:', err.message),
-    )
-    // Tier verification: scrape LC membership tier after cookies are fresh.
-    // Runs in the background on startup and periodically. The recheck interval
-    // reads lcTierRecheckHours from config (default 24h); a recheck that finds the
-    // cached tier still fresh is skipped inside verifyLcTier, so this only scrapes
-    // when actually stale. Re-linking the account re-triggers it immediately via
-    // commitAccount's forced verifyLcTier.
-    const lcTierRecheckHours = Number(appConfig?.LewdCorner?.lcTierRecheckHours)
-    const lcTierRecheckInterval =
-      (Number.isFinite(lcTierRecheckHours) ? lcTierRecheckHours : 24) * 60 * 60 * 1000
-    const runLcTierCheck = () =>
-      accountStore.verifyLcTier().then((result) => {
-        warnOnLcTierMismatch(result)
+    // Tier check chains off cookie refresh so it reads the updated cookies
+    // (re-login resets the tier to null). A fresh cached tier is skipped
+    // inside verifyLcTier (lcTierRecheckDays); re-linking forces a fresh scrape.
+    const { fetchRemoteConfig } = require('./config/remoteConfig')
+    const runLcTierCheck = async () => {
+      await fetchRemoteConfig(getDefaultAppUpdateBranch(), 'lcTier.json')
+      const result = await accountStore.verifyLcTier()
+      logLcTierResult(result)
+    }
+    // Chain the tier check after cookie refresh.
+    accountStore.refreshAllAccounts()
+      .catch((err) => {
+        console.warn('Account cookie refresh failed:', err.message)
       })
-    runLcTierCheck().catch((err) =>
-      console.warn('Initial tier check failed:', err.message),
-    )
-    setInterval(() => {
-      runLcTierCheck().catch((err) =>
-        console.warn('Periodic tier check failed:', err.message),
-      )
-    }, lcTierRecheckInterval)
+      .finally(() => runLcTierCheck().catch((err) => {
+        console.warn('Initial tier check failed:', err.message)
+      }))
   } catch (err) {
     console.warn('Account store init failed:', err.message)
   }
@@ -2373,37 +2355,10 @@ app.whenReady().then(async () => {
   // sqlite connection — a single long transaction would queue the library's own
   // reads behind it and read as a freeze. Progress is streamed to the renderer so
   // Browse can show it instead of an empty grid.
-  setTimeout(async () => {
-    try {
-      // The DB update check also runs at startup. The write lock makes the two
-      // safe to overlap, but there is no point queueing every index chunk behind
-      // a long catalog sync — wait for the writer to finish first, up to a cap so
-      // a stuck sync can never block the build forever.
-      for (let waited = 0; isWriteLockBusy() && waited < 120000; waited += 1000) {
-        if (waited === 0) {
-          console.log(`catalog_index build waiting for ${activeWriteLockLabel() || 'another writer'}…`)
-        }
-        await new Promise((r) => setTimeout(r, 1000))
-      }
-      const status = await getCatalogIndexStatus()
-      if (status.ready) {
-        console.log(`catalog_index ready: ${status.rowCount} entries`)
-        return
-      }
-      console.log(
-        `catalog_index needs building (version ${status.version} -> ${status.expectedVersion}` +
-        `${status.stale ? `, stale: ${status.staleReason}` : ''}); building in background`,
-      )
-      await rebuildCatalogIndex({
-        onProgress: (payload) => {
-          BrowserWindow.getAllWindows().forEach((win) => {
-            if (!win.isDestroyed()) win.webContents.send('catalog-index-progress', payload)
-          })
-        },
-      })
-    } catch (err) {
+  setTimeout(() => {
+    runBackgroundCatalogIndexRebuild().catch((err) => {
       console.error('Background catalog index build failed:', err?.message || err)
-    }
+    })
   }, 1500)
 
   const ctx = buildCtx()

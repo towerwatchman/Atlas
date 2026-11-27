@@ -16,7 +16,8 @@
 // clicked programmatically; if that produces a destination within a few
 // seconds, the user never sees anything. If it does not - because reCAPTCHA
 // decided to challenge, or the markup changed - the window is revealed and the
-// user finishes it themselves.
+// user finishes it themselves. Settings > Accounts can skip the clicking and
+// hand the window to the user instead.
 //
 // Clicking programmatically is done on the basis that F95zone confirmed it is
 // acceptable. It is also long-established in this ecosystem: F95Checker's
@@ -61,7 +62,9 @@ const { DL_POLL_SCRIPT, shouldReveal, IDLE_REVEAL_MS, LOAD_GRACE_MS } = require(
 const RESOLVER_PARTITION = "persist:masked-resolver";
 // Long enough for a slow challenge, short enough that a forgotten window does
 // not pin a queue slot indefinitely.
-const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000;
+const DEFAULT_TIMEOUT_MS = 2 * 60 * 1000;
+// Replaces DEFAULT_TIMEOUT_MS when the user takes over.
+const F95_CAPTCHA_TIMEOUT_MS = 5 * 60 * 1000;
 
 // ── Which cookies survive a resolve ──────────────────────────────────────────
 //
@@ -219,14 +222,19 @@ function resolveMaskedLinkImpl(maskedUrl, options = {}) {
     cookieHeader = "",
     baseUrl = `https://${F95_HOST}/`,
     title = "",
-    timeoutMs = DEFAULT_TIMEOUT_MS,
+    // Leaves the gate's controls and its captcha to the user.
+    manualResolve = false,
+    // A human needs longer at a captcha than an unattended attempt needs.
+    timeoutMs = manualResolve ? F95_CAPTCHA_TIMEOUT_MS : DEFAULT_TIMEOUT_MS,
     // Set false to go straight to a visible window - useful if the automated
     // path ever starts misbehaving in the field.
-    headless = true,
+    headless: headlessRequested = true,
     // Hosts that count as "still on the gate". Defaults to F95; a host plugin
     // passes its own so the window knows when it has reached the real file.
     gateHosts = undefined,
   } = options;
+  // A captcha cannot be solved in a hidden window.
+  const headless = headlessRequested && !manualResolve;
   const onGate = (target) => isGateUrl(target, gateHosts);
 
   return new Promise((resolve) => {
@@ -337,6 +345,10 @@ function resolveMaskedLinkImpl(maskedUrl, options = {}) {
     // runs show whether the hidden attempt is actually working, rather than
     // this being assumed.
     let resolvedVia = headless ? "headless" : "visible";
+    let captchaMode = false;
+    // Same-button clicks in a row; three means the page is looping, not loading.
+    let consecutiveClicks = 0;
+    let lastClickedBtn = null;
 
     // Show the window and stop pretending this will resolve itself.
     const reveal = (reason) => {
@@ -476,6 +488,27 @@ function resolveMaskedLinkImpl(maskedUrl, options = {}) {
       return true;
     };
 
+    // (Re)arm the resolve timer. Only a human handover restarts it; the
+    // automated attempt keeps its fixed budget.
+    const armTimer = (ms) => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => {
+        if (!settleFromCandidates()) {
+          void finish({ ok: false, timedOut: true, error: "Timed out waiting for the download link" });
+        }
+      }, ms);
+    };
+
+    // Stop clicking, show the window, swap the resolve timer for the takeover one.
+    const enterCaptchaMode = (reason) => {
+      if (captchaMode || settled) return;
+      captchaMode = true;
+      appLog.write("masked-resolve", { event: "captcha-mode", reason }, { devtools: true });
+      reveal(reason);
+      if (pollInterval) { clearInterval(pollInterval); pollInterval = null; }
+      armTimer(F95_CAPTCHA_TIMEOUT_MS);
+    };
+
     const finishDirect = (url, source) => {
       if (!isNavigableHttp(url)) return false;
       note(source, url);
@@ -612,6 +645,14 @@ function resolveMaskedLinkImpl(maskedUrl, options = {}) {
       const current = contents.getURL();
       // Only on the gate page; never inject into the destination host.
       if (!onGate(current)) return;
+      // did-finish-load runs again on every captcha-failure reload; re-arming
+      // the poll here is what used to resume the clicking.
+      if (manualResolve || captchaMode) {
+        // The gate is ready, so the user can act from here. Start the manual
+        // budget now instead of when the load began.
+        if (manualResolve) armTimer(timeoutMs);
+        return cacheBrowserHeaders();
+      }
       contents.executeJavaScript(CLICK_HOST_LINK, true).catch(() => {
         // A failed injection is not fatal; the window will be revealed.
       });
@@ -665,6 +706,17 @@ function resolveMaskedLinkImpl(maskedUrl, options = {}) {
           );
           if (dlResult) {
             dlPoll = dlResult;
+            // Click-loop is the fallback for a captcha we don't recognise by id.
+            if (dlResult.captcha) {
+              enterCaptchaMode("captcha");
+            } else if (dlResult.dlActive) {
+              consecutiveClicks = 0;
+              lastClickedBtn = null;
+            } else if (dlResult.clicked) {
+              if (dlResult.clicked === lastClickedBtn) consecutiveClicks += 1;
+              else { lastClickedBtn = dlResult.clicked; consecutiveClicks = 1; }
+              if (consecutiveClicks >= 3) enterCaptchaMode("click-loop");
+            }
             // Only a change counts: a frozen countdown keeps reporting the same
             // seconds and must not look alive forever. The first reading is the
             // baseline, not a step.
@@ -738,11 +790,7 @@ function resolveMaskedLinkImpl(maskedUrl, options = {}) {
       }, 1000);
     }
 
-    timer = setTimeout(() => {
-      if (!settleFromCandidates()) {
-        void finish({ ok: false, timedOut: true, error: "Timed out waiting for the download link" });
-      }
-    }, timeoutMs);
+    armTimer(timeoutMs);
 
     // ── Go ──────────────────────────────────────────────────────────────────
     (async () => {
@@ -810,6 +858,8 @@ function resolveMaskedLink(maskedUrl, options = {}) {
 
 module.exports = {
   resolveMaskedLink,
+  DEFAULT_TIMEOUT_MS,
+  F95_CAPTCHA_TIMEOUT_MS,
   // Persistent partition + cookie seeding, shared with forum thread fetching
   // so both use the one session that holds solved Cloudflare grants.
   RESOLVER_PARTITION,

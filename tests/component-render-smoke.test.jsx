@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { test, expect, beforeEach, vi } from 'vitest'
-import { render, screen, cleanup, act } from '@testing-library/react'
+import { render, screen, cleanup, act, fireEvent } from '@testing-library/react'
 
 // Actually renders components, which nothing did before.
 //
@@ -250,4 +250,190 @@ test('SearchSidebar shows catalog-only ratings in catalog mode', async () => {
   expect(screen.queryByText('Favorites only')).toBeNull()
   expect(screen.queryByText('Show games with multiple installed versions')).toBeNull()
   expect(screen.queryByText('Has Steam mapping')).toBeNull()
+})
+
+test('SearchSidebar shows the Last Seen block in catalog mode', async () => {
+  await renderSettled(
+    <SearchSidebar
+      isVisible={true}
+      isCatalogMode={true}
+      activeFilters={{ installState: 'all', communityRatingMin: 0 }}
+      onFilterChange={() => {}}
+    />,
+  )
+  await act(() => screen.getByText('Quick Filters').click())
+  expect(screen.getByText('Only new tiles')).toBeTruthy()
+  expect(screen.getByText('Since last startup')).toBeTruthy()
+  expect(screen.getByText('Since last tracked')).toBeTruthy()
+  expect(screen.getByText('Clear last tracked')).toBeTruthy()
+})
+
+test('SearchSidebar shows the Last Seen block in library mode', async () => {
+  await renderSettled(
+    <SearchSidebar
+      isVisible={true}
+      isCatalogMode={false}
+      activeFilters={{ installState: 'all', updateAvailable: false }}
+      onFilterChange={() => {}}
+    />,
+  )
+  await act(() => screen.getByText('Quick Filters').click())
+  expect(screen.getByText('Only new tiles')).toBeTruthy()
+  expect(screen.getByText('Since last startup')).toBeTruthy()
+  expect(screen.getByText('Since last tracked')).toBeTruthy()
+  expect(screen.getByText('Clear last tracked')).toBeTruthy()
+})
+
+// The control is the part those render tests leave uncovered: it has to send the
+// chosen mode and map "Any" back to no filter. The label has no htmlFor, so the
+// select is found by the one option value only it carries.
+const lastSeenSelect = (container) =>
+  Array.from(container.querySelectorAll('select')).find((el) =>
+    Array.from(el.options).some((o) => o.value === 'startup'),
+  )
+
+test('SearchSidebar Last Seen select sends the chosen mode', async () => {
+  const onFilterChange = vi.fn()
+  const { container } = await renderSettled(
+    <SearchSidebar
+      isVisible={true}
+      isCatalogMode={true}
+      activeFilters={{ installState: 'all', communityRatingMin: 0 }}
+      onFilterChange={onFilterChange}
+    />,
+  )
+  await act(() => screen.getByText('Quick Filters').click())
+  fireEvent.change(lastSeenSelect(container), { target: { value: 'startup' } })
+  expect(onFilterChange).toHaveBeenCalled()
+  expect(onFilterChange.mock.calls[0][0].lastSeen).toBe('startup')
+})
+
+test('SearchSidebar Last Seen maps Any back to a null filter', async () => {
+  const onFilterChange = vi.fn()
+  const { container } = await renderSettled(
+    <SearchSidebar
+      isVisible={true}
+      isCatalogMode={true}
+      activeFilters={{ installState: 'all', communityRatingMin: 0, lastSeen: 'startup' }}
+      onFilterChange={onFilterChange}
+    />,
+  )
+  await act(() => screen.getByText('Quick Filters').click())
+  fireEvent.change(lastSeenSelect(container), { target: { value: 'any' } })
+  expect(onFilterChange).toHaveBeenCalled()
+  expect(onFilterChange.mock.calls[0][0].lastSeen).toBeNull()
+})
+
+test('SearchSidebar Clear last tracked calls the main process', async () => {
+  const clearLastTracked = vi.fn()
+  const previous = window.electronAPI.clearLastTracked
+  window.electronAPI.clearLastTracked = clearLastTracked
+  try {
+    await renderSettled(
+      <SearchSidebar
+        isVisible={true}
+        isCatalogMode={true}
+        activeFilters={{ installState: 'all', communityRatingMin: 0 }}
+        onFilterChange={() => {}}
+      />,
+    )
+    await act(() => screen.getByText('Quick Filters').click())
+    await act(async () => { screen.getByText('Clear last tracked').click(); await flush() })
+    expect(clearLastTracked).toHaveBeenCalled()
+  } finally {
+    window.electronAPI.clearLastTracked = previous
+  }
+})
+
+// Drains the microtask queue so an awaiting handler settles; call inside act().
+const flush = async () => { for (let i = 0; i < 5; i += 1) await Promise.resolve() }
+
+const renderCatalogSidebar = async (clearLastTracked) => {
+  const previous = window.electronAPI.clearLastTracked
+  if (clearLastTracked) window.electronAPI.clearLastTracked = clearLastTracked
+  const result = await renderSettled(
+    <SearchSidebar
+      isVisible={true}
+      isCatalogMode={true}
+      activeFilters={{ installState: 'all', communityRatingMin: 0 }}
+      onFilterChange={() => {}}
+    />,
+  )
+  await act(() => screen.getByText('Quick Filters').click())
+  return { ...result, restore: () => { window.electronAPI.clearLastTracked = previous } }
+}
+
+test('SearchSidebar Last Seen empty option is labelled "-"', async () => {
+  const { container } = await renderCatalogSidebar()
+  const empty = Array.from(lastSeenSelect(container).options).find((o) => o.value === 'any')
+  expect(empty.textContent).toBe('-')
+})
+
+test('SearchSidebar disables Clear last tracked until the call settles', async () => {
+  let resolveClear
+  const { restore } = await renderCatalogSidebar(vi.fn(() => new Promise((res) => { resolveClear = res })))
+  try {
+    const button = screen.getByText('Clear last tracked')
+    await act(async () => { button.click() })
+    expect(button.disabled).toBe(true)
+    await act(async () => { resolveClear({ cleared: true, watermark: 1 }); await flush() })
+    expect(button.disabled).toBe(false)
+  } finally {
+    restore()
+  }
+})
+
+test('SearchSidebar shows no failure line when main resolves a successful clear', async () => {
+  // This is exactly the shape electron/ipc/games.js resolves with on success.
+  // Inverting the sidebar's success check makes a working clear look failed,
+  // so this case fails when that check flips.
+  const { restore } = await renderCatalogSidebar(vi.fn(async () => ({ cleared: true, watermark: 40 })))
+  try {
+    const button = screen.getByText('Clear last tracked')
+    await act(async () => { button.click(); await flush() })
+    expect(screen.queryByText(/Failed to clear last tracked/)).toBeNull()
+    expect(button.disabled).toBe(false)
+  } finally {
+    restore()
+  }
+})
+
+test('SearchSidebar reports a clear that cleared nothing', async () => {
+  const { restore } = await renderCatalogSidebar(vi.fn(async () => ({ cleared: false })))
+  try {
+    const button = screen.getByText('Clear last tracked')
+    await act(async () => { button.click(); await flush() })
+    expect(screen.getByText(/Failed to clear last tracked/)).toBeTruthy()
+    expect(button.disabled).toBe(false)
+  } finally {
+    restore()
+  }
+})
+
+// The Last Seen control is a Library filter: the Wishlist list never reads it, so
+// showing it there is a dead control. The gate is isWishlistMode, not isCatalogMode,
+// because the plain local Library (both flags false) must keep it.
+const renderSidebarInMode = async ({ isWishlistMode, isCatalogMode }) => {
+  const result = await renderSettled(
+    <SearchSidebar
+      isVisible={true}
+      isWishlistMode={isWishlistMode}
+      isCatalogMode={isCatalogMode}
+      activeFilters={{ installState: 'all', communityRatingMin: 0 }}
+      onFilterChange={() => {}}
+    />,
+  )
+  await act(() => screen.getByText('Quick Filters').click())
+  return result
+}
+
+test('SearchSidebar hides Last Seen in the Wishlist', async () => {
+  await renderSidebarInMode({ isWishlistMode: true, isCatalogMode: false })
+  expect(screen.queryByText('Only new tiles')).toBeNull()
+  expect(screen.queryByText('Clear last tracked')).toBeNull()
+})
+
+test('SearchSidebar keeps Last Seen in the local Library', async () => {
+  await renderSidebarInMode({ isWishlistMode: false, isCatalogMode: false })
+  expect(screen.getByText('Only new tiles')).toBeTruthy()
 })

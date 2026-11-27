@@ -1173,7 +1173,7 @@ ${bannerJoinClauses}
       }
 
       // Execute versions query
-      getDb().all(versionsQuery, [], (err, versionRows) => {
+      getDb().all(versionsQuery, [], async (err, versionRows) => {
         if (err) {
           console.error("Error fetching versions:", err);
           reject(err);
@@ -1233,8 +1233,23 @@ ${bannerJoinClauses}
             (game) => includeUninstalled || game.hasInstalledVersion,
           );
 
-        console.log(`Fetched ${games.length} games with versions`);
-        resolve(games);
+        // Compared in JS here, so a row with no catalog match (null atlas_id) drops out while the filter is on.
+        let lastSeenFloor = null;
+        try {
+          const { readLastSeenFloor } = require('./catalogIndex');
+          lastSeenFloor = await readLastSeenFloor(options.lastSeen);
+        } catch (err) {
+          reject(err);
+          return;
+        }
+        const visible =
+          lastSeenFloor === null
+            ? games
+            // shortcut: the Library filter runs after LIMIT/OFFSET, no caller pages with a limit today; move it into the query when one does
+            : games.filter((game) => game.atlas_id > lastSeenFloor);
+
+        console.log(`Fetched ${visible.length} games with versions`);
+        resolve(visible);
       });
     });
   });
@@ -1286,7 +1301,22 @@ const buildBranchRestrictions = (keys) => {
 // The updateAvailable filter always takes the union path: it needs per-record
 // version-string comparison in JS, which is not expressible as a SQL predicate.
 const getCatalogGames = async (appPath, isDev, options = {}) => {
-  if (options.filters?.updateAvailable !== true && !options.hydrateKeys) {
+  // Resolved once here so the index path and the union scan filter on the same floor.
+  let resolved = options
+  const lastSeen = options.filters?.lastSeen
+  if (lastSeen === 'startup' || lastSeen === 'tracked') {
+    const { readLastSeenFloor } = require('./catalogIndex')
+    const floor = await readLastSeenFloor(lastSeen)
+    if (floor !== null) {
+      resolved = { ...options, filters: { ...options.filters, lastSeenFloor: floor } }
+    }
+  } else if (options.filters && 'lastSeenFloor' in options.filters) {
+    // A floor with no recognised mode is a stale key from a hand-built filters
+    // object and would silently narrow the list; both paths read `resolved`.
+    const { lastSeenFloor, ...restFilters } = options.filters
+    resolved = { ...options, filters: restFilters }
+  }
+  if (resolved.filters?.updateAvailable !== true && !resolved.hydrateKeys) {
     try {
       const { getCatalogIndexStatus, queryCatalogIndex } = require('./catalogIndex')
       const status = await getCatalogIndexStatus()
@@ -1299,7 +1329,7 @@ const getCatalogGames = async (appPath, isDev, options = {}) => {
         const includeTotal = options.includeTotal === true
 
         const { keys, total } = await queryCatalogIndex({
-          search: options.search, filters: options.filters,
+          search: options.search, filters: resolved.filters,
           offset, limit, includeTotal, countOnly,
         })
         if (countOnly) {
@@ -1312,7 +1342,7 @@ const getCatalogGames = async (appPath, isDev, options = {}) => {
         // Hydrate exactly these keys. Ordering is reapplied in JS from the index
         // result, because restricting the branches drops the SQL ORDER BY.
         const hydrated = await getCatalogGamesFromUnion(appPath, isDev, {
-          ...options, hydrateKeys: keys, offset: 0, limit: keys.length,
+          ...resolved, hydrateKeys: keys, offset: 0, limit: keys.length,
           includeTotal: false, countOnly: false,
         })
         const byKey = new Map(
@@ -1330,7 +1360,7 @@ const getCatalogGames = async (appPath, isDev, options = {}) => {
       console.warn('Catalog index path unavailable, falling back to full scan:', err.message)
     }
   }
-  return getCatalogGamesFromUnion(appPath, isDev, options)
+  return getCatalogGamesFromUnion(appPath, isDev, resolved)
 }
 
 const getCatalogGamesFromUnion = (appPath, isDev, options = {}) => {
@@ -1482,7 +1512,7 @@ const getCatalogGamesFromUnion = (appPath, isDev, options = {}) => {
         ELSE strftime('%s', ${field}) * 1000
       END
     `;
-    const addDateRangeFilter = (field, range) => {
+    const addDateRangeFilter = (field, range, dateExpr) => {
       const now = Date.now();
       let min = null;
       let max = now;
@@ -1493,12 +1523,26 @@ const getCatalogGamesFromUnion = (appPath, isDev, options = {}) => {
         const year = new Date(now).getFullYear();
         min = new Date(year, 0, 1).getTime();
         max = new Date(year + 1, 0, 1).getTime() - 1;
+      } else if (range === 'custom') {
+        const fromMs = filters.dateFrom ? Date.parse(`${filters.dateFrom}T00:00:00`) : Number.NaN;
+        const toMs = filters.dateTo ? Date.parse(`${filters.dateTo}T23:59:59.999`) : Number.NaN;
+        min = Number.isFinite(fromMs) ? fromMs : null;
+        max = Number.isFinite(toMs) ? toMs : null;
+        if (min === null && max === null) return;
       } else {
         return;
       }
-      const dateExpr = dateMsExpression(field);
-      filterWhereParts.push(`(${dateExpr}) BETWEEN ? AND ?`);
-      filterParams.push(min, max);
+      if (dateExpr === undefined) dateExpr = dateMsExpression(field);
+      // Separate >= / <= instead of BETWEEN: BETWEEN min AND NULL is always
+      // false in SQLite, and the slider leaves dateTo empty.
+      if (min !== null) {
+        filterWhereParts.push(`(${dateExpr}) >= ?`);
+        filterParams.push(min);
+      }
+      if (max !== null) {
+        filterWhereParts.push(`(${dateExpr}) <= ?`);
+        filterParams.push(max);
+      }
     };
     const browseSource = String(filters.browseSource || filters.source || 'all').toLowerCase();
     if (browseSource === 'steam') {
@@ -1640,14 +1684,29 @@ const getCatalogGamesFromUnion = (appPath, isDev, options = {}) => {
       filterWhereParts.push('MAX(COALESCE(CAST(catalog.rating AS REAL), 0), COALESCE(CAST(catalog.lewdcornerRating AS REAL), 0)) >= ?');
       filterParams.push(communityRatingMinValue);
     }
-    if (filters.dateField === 'releaseDate' && filters.dateRange && filters.dateRange !== 'any') {
-      addDateRangeFilter('catalog.release_date', filters.dateRange);
-    } else if (filters.dateField === 'latestUpdate' && filters.dateRange && filters.dateRange !== 'any') {
-      addDateRangeFilter('catalog.thread_updated', filters.dateRange);
+    // Steam/gog/lewdcorner rows project a null atlas_id, so a plain > drops them.
+    if (Number.isFinite(filters.lastSeenFloor)) {
+      filterWhereParts.push('catalog.atlas_id > ?');
+      filterParams.push(filters.lastSeenFloor);
+    }
+    // The catalog index bakes a COALESCE fallback into each date concept
+    // (thread_updated -> lewdcorner thread_updated, thread_publish_date ->
+    // lewdcorner register_date). The union path must reproduce the same
+    // chains for both filtering and sorting, or rows with an empty primary
+    // date are dropped (filter) or mis-ordered (sort).
+    const luExpr = `COALESCE(${dateMsExpression('catalog.thread_updated')}, ${dateMsExpression('catalog.lewdcornerThreadUpdated')})`;
+    const tpExpr = `COALESCE(${dateMsExpression('catalog.thread_publish_date')}, ${dateMsExpression('catalog.lewdcornerRegisterDate')})`;
+    if (filters.dateField === 'latestUpdate' && filters.dateRange && filters.dateRange !== 'any') {
+      addDateRangeFilter('catalog.thread_updated', filters.dateRange, luExpr);
     } else if (filters.dateField === 'threadPublished' && filters.dateRange && filters.dateRange !== 'any') {
-      addDateRangeFilter('catalog.thread_publish_date', filters.dateRange);
+      addDateRangeFilter('catalog.thread_publish_date', filters.dateRange, tpExpr);
     } else if (filters.dateField === 'none' && filters.browseDateRange && filters.browseDateRange !== 'any') {
-      addDateRangeFilter(filters.browseDateBasis === 'thread_publish_date' ? 'catalog.thread_publish_date' : 'catalog.thread_updated', filters.browseDateRange);
+      const basisField = filters.browseDateBasis === 'thread_publish_date' ? 'thread_publish_date' : 'thread_updated';
+      if (basisField === 'thread_publish_date') {
+        addDateRangeFilter('catalog.thread_publish_date', filters.browseDateRange, tpExpr);
+      } else {
+        addDateRangeFilter('catalog.thread_updated', filters.browseDateRange, luExpr);
+      }
     }
     const whereParts = [searchWhere, ...filterWhereParts].filter(Boolean);
     const whereClause = whereParts.length > 0 ? `WHERE ${whereParts.join(' AND ')}` : '';
@@ -1658,11 +1717,16 @@ const getCatalogGamesFromUnion = (appPath, isDev, options = {}) => {
       nameDesc: 'titleDesc',
       newest: 'threadUpdatedDesc',
       oldest: 'threadUpdatedAsc',
+      // Retired keys; redirect them to the current sorts so a filter saved
+      // before the rename keeps its ordering instead of falling through to the
+      // alphabetical title fallback below.
+      releaseDateDesc: 'newReleaseDesc',
+      releaseDateAsc: 'newReleaseAsc',
     };
     const browseSortValue = String(filters.browseSort || 'threadUpdatedDesc');
     const browseSort = browseSortAliases[browseSortValue] || browseSortValue;
-    const orderByParsedDate = (field, direction) => {
-      const dateExpr = dateMsExpression(field);
+    const orderByParsedDate = (field, direction, dateExpr) => {
+      if (dateExpr === undefined) dateExpr = dateMsExpression(field);
       const nowMs = Date.now();
       // Rows with a valid, non-future date sort first (by direction); rows with
       // a future date are pushed below them, and NULL/empty dates last. This
@@ -1697,17 +1761,17 @@ const getCatalogGamesFromUnion = (appPath, isDev, options = {}) => {
                 : browseSort === 'ratingAsc'
                   ? orderByBestOf('catalog.rating', 'catalog.lewdcornerRating', 'ASC')
                   : browseSort === 'threadUpdatedDesc'
-                    ? orderByParsedDate('catalog.thread_updated', 'DESC')
+                    ? orderByParsedDate('catalog.thread_updated', 'DESC', luExpr)
                     : browseSort === 'threadUpdatedAsc'
-                      ? orderByParsedDate('catalog.thread_updated', 'ASC')
+                      ? orderByParsedDate('catalog.thread_updated', 'ASC', luExpr)
                       : browseSort === 'threadPublishedDesc'
-                        ? orderByParsedDate('catalog.thread_publish_date', 'DESC')
+                        ? orderByParsedDate('catalog.thread_publish_date', 'DESC', tpExpr)
                         : browseSort === 'threadPublishedAsc'
-                          ? orderByParsedDate('catalog.thread_publish_date', 'ASC')
-                          : browseSort === 'releaseDateDesc'
-                            ? orderByParsedDate('catalog.release_date', 'DESC')
-                            : browseSort === 'releaseDateAsc'
-                              ? orderByParsedDate('catalog.release_date', 'ASC')
+                          ? orderByParsedDate('catalog.thread_publish_date', 'ASC', tpExpr)
+                          : browseSort === 'newReleaseDesc'
+                            ? 'ORDER BY catalog.atlas_id DESC, catalog.title COLLATE NOCASE ASC, catalog.catalogKey ASC'
+                            : browseSort === 'newReleaseAsc'
+                              ? 'ORDER BY CASE WHEN catalog.atlas_id IS NULL THEN 1 ELSE 0 END ASC, catalog.atlas_id ASC, catalog.title COLLATE NOCASE ASC, catalog.catalogKey ASC'
                               : browseSort === 'f95LatestOrderDesc'
                                 ? orderByNullableNumber('catalog.f95_latest_order', 'DESC')
                                 : browseSort === 'f95LatestOrderAsc'
