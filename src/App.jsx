@@ -416,9 +416,10 @@ const App = () => {
 
   const handleGoBack = useCallback(() => {
     const result = goBack(viewHistory)
-    if (!result) return
+    if (!result) return false
     setViewHistory(result.history)
     applySnapshot(result.snapshot)
+    return true
   }, [viewHistory, applySnapshot])
 
   const handleGoForward = useCallback(() => {
@@ -786,6 +787,14 @@ const App = () => {
     pendingLibraryScrollTopRestoreRef.current = libraryScrollTopRef.current || 0
     setSelectedGame(null)
   }, [])
+
+  // A detail page sits on top of the view that opened it, so step back there
+  // first. Closing without a history entry would leave Forward with nothing
+  // to return to.
+  const handleDetailBack = useCallback(() => {
+    if (handleGoBack()) return
+    goBackToLibrary()
+  }, [handleGoBack, goBackToLibrary])
 
   const goHome = useCallback(() => {
     recordNavigation('library', null, { savedFilterId: '', collectionId: null })
@@ -2685,7 +2694,7 @@ const App = () => {
             <GameDetailPage
               game={selectedGame}
               onOpenUpdate={openUpdateModal}
-              onBack={goBackToLibrary}
+              onBack={handleDetailBack}
               onRefresh={refreshDetailGame}
               onWishlistChanged={handleWishlistChanged}
               onBlacklisted={handleBlacklisted}

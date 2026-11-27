@@ -77,7 +77,7 @@ describe('keyboardShortcuts action list', () => {
       .toBeUndefined()
   })
 
-  it('ships only non-conflicting ordinary defaults and none for Back or Forward', () => {
+  it('ships non-conflicting defaults including Back and Forward', () => {
     expect(DEFAULT_SHORTCUT_BINDINGS).toEqual({
       openViewLibrary: ['Ctrl+1'],
       openViewBrowse: ['Ctrl+2'],
@@ -85,16 +85,24 @@ describe('keyboardShortcuts action list', () => {
       openViewCollections: ['Ctrl+4'],
       openViewWishlist: ['Ctrl+5'],
       openViewDownloads: ['Ctrl+D'],
+      navigateBack: ['Mouse3', 'Ctrl+ArrowLeft'],
+      navigateForward: ['Mouse4', 'Ctrl+ArrowRight'],
       focusSearch: ['Ctrl+F'],
       toggleFilterSidebar: ['F'],
       toggleGameList: ['G'],
       'openSettingsPage:Shortcuts': ['Ctrl+K'],
       quit: ['Ctrl+Q'],
     })
-    expect(DEFAULT_SHORTCUT_BINDINGS.navigateBack).toBeUndefined()
-    expect(DEFAULT_SHORTCUT_BINDINGS.navigateForward).toBeUndefined()
     const defaults = Object.values(DEFAULT_SHORTCUT_BINDINGS).flat()
     expect(new Set(defaults).size).toBe(defaults.length)
+  })
+
+  it('indexes the mouse and arrow defaults for Back and Forward', () => {
+    const index = buildShortcutIndex(readBindings({}))
+    expect(index.Mouse3).toBe('navigateBack')
+    expect(index['Ctrl+ArrowLeft']).toBe('navigateBack')
+    expect(index.Mouse4).toBe('navigateForward')
+    expect(index['Ctrl+ArrowRight']).toBe('navigateForward')
   })
 })
 
@@ -234,7 +242,8 @@ describe('config encode and decode', () => {
     const bindings = readBindings(CONFIG(JSON.stringify({ focusSearch: ['Ctrl+F'] })))
     expect(bindings.focusSearch).toEqual(['Ctrl+F'])
     expect(bindings.openViewLibrary).toEqual(['Ctrl+1'])
-    expect(bindings.navigateBack).toBeUndefined()
+    expect(bindings.navigateBack).toEqual(['Mouse3', 'Ctrl+ArrowLeft'])
+    expect(bindings.navigateForward).toEqual(['Mouse4', 'Ctrl+ArrowRight'])
   })
 
   it('treats an explicitly emptied row as configured', () => {
@@ -274,6 +283,8 @@ describe('config encode and decode', () => {
       openViewCollections: ['Ctrl+4'],
       openViewWishlist: ['Ctrl+5'],
       openViewDownloads: ['Ctrl+D'],
+      navigateBack: ['Mouse3', 'Ctrl+ArrowLeft'],
+      navigateForward: ['Mouse4', 'Ctrl+ArrowRight'],
       toggleFilterSidebar: ['F'],
       toggleGameList: ['G'],
       'openSettingsPage:Shortcuts': ['Ctrl+K'],

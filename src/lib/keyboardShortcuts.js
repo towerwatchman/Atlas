@@ -82,6 +82,8 @@ export const DEFAULT_SHORTCUT_BINDINGS = {
   openViewCollections: ['Ctrl+4'],
   openViewWishlist: ['Ctrl+5'],
   openViewDownloads: ['Ctrl+D'],
+  navigateBack: ['Mouse3', 'Ctrl+ArrowLeft'],
+  navigateForward: ['Mouse4', 'Ctrl+ArrowRight'],
   focusSearch: ['Ctrl+F'],
   toggleFilterSidebar: ['F'],
   toggleGameList: ['G'],

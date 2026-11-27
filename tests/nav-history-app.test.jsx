@@ -40,6 +40,15 @@ describe('view history wired into App', () => {
     has(src, 'saveHistory(viewHistory)')
   })
 
+  it('steps back through history when leaving a detail page', () => {
+    const src = readApp()
+    const detailBack = bodyOf(src, 'const handleDetailBack = useCallback(')
+    has(detailBack, 'handleGoBack()')
+    has(detailBack, 'goBackToLibrary()')
+    has(src, 'onBack={handleDetailBack}')
+    has(bodyOf(src, 'const handleGoBack = useCallback('), 'return true')
+  })
+
   it('records explicit page visits with their filter identity', () => {
     const src = readApp()
     const visits = [
