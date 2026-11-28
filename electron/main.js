@@ -1446,11 +1446,16 @@ function createWindow() {
 
 function createSettingsWindow(options = {}) {
   const wantTour = options && options.tour === true
+  // IPC options are caller-supplied; only a non-empty string names a tab.
+  const tab = typeof options?.tab === 'string' && options.tab ? options.tab : null
   if (settingsWindow && !settingsWindow.isDestroyed()) {
     focusWindow(settingsWindow)
     // If the window already exists and a tour was requested, tell it to start.
     if (wantTour) {
       try { settingsWindow.webContents.send('start-settings-tour') } catch { /* ignore */ }
+    }
+    if (tab) {
+      try { settingsWindow.webContents.send('settings-tab', tab) } catch { /* ignore */ }
     }
     return
   }
@@ -1473,11 +1478,14 @@ function createSettingsWindow(options = {}) {
   }, { centerOnMain: true })
   settingsWindow = new BrowserWindow(windowState.options)
   registerWindowBoundsPersistence('settings', settingsWindow, windowState)
-  const tourQuery = wantTour ? '?tour=1' : ''
+  const queryParts = []
+  if (wantTour) queryParts.push('tour=1')
+  if (tab) queryParts.push(`tab=${encodeURIComponent(tab)}`)
+  const queryString = queryParts.length ? `?${queryParts.join('&')}` : ''
   if (VITE_DEV_SERVER_URL) {
-    settingsWindow.loadURL(VITE_DEV_SERVER_URL + '/settings.html' + tourQuery)
+    settingsWindow.loadURL(VITE_DEV_SERVER_URL + '/settings.html' + queryString)
   } else {
-    settingsWindow.loadFile(path.join(__dirname, '../dist/renderer/settings.html'), tourQuery ? { search: tourQuery } : undefined)
+    settingsWindow.loadFile(path.join(__dirname, '../dist/renderer/settings.html'), queryString ? { search: queryString } : undefined)
   }
   if (appConfig?.Interface?.showDebugConsole) {
     settingsWindow.webContents.openDevTools()
@@ -2308,9 +2316,7 @@ app.whenReady().then(async () => {
     // Tier check chains off cookie refresh so it reads the updated cookies
     // (re-login resets the tier to null). A fresh cached tier is skipped
     // inside verifyLcTier (lcTierRecheckDays); re-linking forces a fresh scrape.
-    const { fetchRemoteConfig } = require('./config/remoteConfig')
     const runLcTierCheck = async () => {
-      await fetchRemoteConfig(getDefaultAppUpdateBranch(), 'lcTier.json')
       const result = await accountStore.verifyLcTier()
       logLcTierResult(result)
     }

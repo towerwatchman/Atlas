@@ -16,6 +16,7 @@ const LABELS = {
   List: 'List',
   Browse: 'Browse',
   Favorites: 'Favorites',
+  Downloads: 'Downloads',
   Updates: 'Updates',
   Settings: 'Settings',
   Filters: 'Filters',
@@ -24,11 +25,11 @@ const LABELS = {
 
 // Explicit left-to-right order for each group, independent of the order
 // getNavItems() happens to return them in — see App.jsx's task notes:
-// left = Library, Browse, Import, Settings, Filters; right = Updates,
-// List, Wishlist, About (icon-only by default, like the help/list/theme
-// icon cluster in the reference design's top-right corner — but see
-// navDisplayMode for how this can include text too).
-const LEFT_ORDER = ['Library', 'Browse', 'Add', 'Settings', 'Filters']
+// left = Library, Browse, Import, Settings, Filters, Downloads; right =
+// Updates, List, Wishlist, About (icon-only by default, like the
+// help/list/theme icon cluster in the reference design's top-right corner
+// — but see navDisplayMode for how this can include text too).
+const LEFT_ORDER = ['Library', 'Browse', 'Add', 'Settings', 'Filters', 'Downloads']
 const RIGHT_ORDER = ['Updates', 'List', 'Favorites', 'Collections', 'About']
 
 const orderItems = (items, order) =>
@@ -56,12 +57,14 @@ const TopNav = ({
   onToggleGameList, onCheckDbUpdates, onGoHome, onBrowseCatalog, onOpenWishlist,
   onToggleSearchSidebar, onOpenAbout, onOpenCollections, showGameList, libraryMode = 'local', group = 'left',
   forceIconsOnly = false, browseAvailable, favoritesActive = false, collectionsActive = false,
+  onOpenDownloads, downloadsActive = false,
 }) => {
   const { navDisplayMode } = useTheme()
   const [selected, setSelected] = useState(null)
   const items = getNavItems({
     onToggleGameList, onCheckDbUpdates, onBrowseCatalog, onOpenWishlist,
-    onToggleSearchSidebar, onOpenAbout, onOpenCollections, browseModeAvailable: browseAvailable,
+    onToggleSearchSidebar, onOpenAbout, onOpenCollections, onOpenDownloads,
+    browseModeAvailable: browseAvailable,
   })
   const groupItems = orderItems(items, group === 'right' ? RIGHT_ORDER : LEFT_ORDER)
   const effectiveDisplayMode = forceIconsOnly ? 'icons' : navDisplayMode
@@ -83,7 +86,7 @@ const TopNav = ({
   return (
     <div className="flex items-center gap-1 h-full -webkit-app-region-no-drag">
       {groupItems.map((item) => {
-        const isActive = navItemIsActive(item.name, { libraryMode, favoritesActive, collectionsActive, selected })
+        const isActive = navItemIsActive(item.name, { libraryMode, favoritesActive, collectionsActive, downloadsActive, selected })
         const buttonContent = (
           <>
             {showIcon && (

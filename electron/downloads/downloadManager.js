@@ -137,6 +137,8 @@ const publish = async (id) => {
 
 const setState = async (id, state, patch = {}) => {
   await downloadsDb.updateDownload(id, { state, ...patch });
+  // Completions go to the front of Completed; cancellations keep their queue place.
+  if (state === "done") await downloadsDb.moveDownloadToFront(id);
   return publish(id);
 };
 

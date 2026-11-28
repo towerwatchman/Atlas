@@ -394,39 +394,16 @@ describe('scrapeLcUserTier', () => {
   })
 })
 
-// ── Remote lcTier.json override ─────────────────────────────────────────────
+// ── Bundled-only lcTier.json ────────────────────────────────────────────────
 //
-// A fetched remote file merges over the bundled one (missing keys fall back);
-// a failed fetch keeps the bundled file.
+// The tier contract ships with the code. Nothing fetches it at account init
+// and the scraper reads the bundled file directly, so a remote file cannot
+// replace the shop path or selectors.
 
-describe('remote lcTier.json override', () => {
-  const remoteConfig = require('../electron/config/remoteConfig')
+describe('bundled lcTier.json only', () => {
+  beforeEach(() => vi.restoreAllMocks())
 
-  beforeEach(() => {
-    vi.restoreAllMocks()
-    remoteConfig.clearRemoteConfigs()
-  })
-
-  test('a partial remote file overrides its keys and falls back for the rest', async () => {
-    mockGet(() => ({ status: 200, data: { shopPath: '/remote-shop' } }))
-    await remoteConfig.fetchRemoteConfig('stable', 'lcTier.json')
-
-    const urls = []
-    mockGet((url) => {
-      urls.push(url)
-      return { status: 200, data: lcTierPageHtml({ membersPlusOwned: true }) }
-    })
-    const { tier } = await scrapeLcUserTier(DUMMY_COOKIES)
-    // Remote shopPath is used; bundled card/buy-button classes still parse the
-    // page, which a whole-file shadow would break.
-    expect(tier).toBe('VIP')
-    expect(urls).toEqual(['https://lewdcorner.com/remote-shop'])
-  })
-
-  test('a failed fetch keeps the bundled file', async () => {
-    mockGet(() => { throw new Error('network error') })
-    await remoteConfig.fetchRemoteConfig('stable', 'lcTier.json')
-
+  test('tier detection fetches the bundled shop path', async () => {
     const urls = []
     mockGet((url) => {
       urls.push(url)
@@ -435,6 +412,33 @@ describe('remote lcTier.json override', () => {
     const { tier } = await scrapeLcUserTier(DUMMY_COOKIES)
     expect(tier).toBe('VIP')
     expect(urls).toEqual([`https://lewdcorner.com${require('../electron/config/lcTier.json').shopPath}`])
+  })
+
+  test('the scraper does not load remote config', () => {
+    const src = require('fs').readFileSync(
+      require('path').join(__dirname, '..', 'electron', 'accounts', 'xenforoAuth.js'),
+      'utf8',
+    )
+    expect(src).not.toContain('remoteConfig')
+  })
+
+  test('production source references no codeon config URL', () => {
+    const fs = require('fs')
+    const path = require('path')
+    const files = []
+    const walk = (dir) => {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const file = path.join(dir, entry.name)
+        if (entry.isDirectory()) walk(file)
+        else if (file.endsWith('.js')) files.push(file)
+      }
+    }
+    walk(path.join(__dirname, '..', 'electron'))
+    for (const file of files) {
+      const src = fs.readFileSync(file, 'utf8')
+      expect(src, file).not.toContain('codeon89')
+      expect(src, file).not.toContain('atlas-client-configs')
+    }
   })
 })
 

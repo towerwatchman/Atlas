@@ -42,12 +42,11 @@
  *           no CSS background-image slot for it to paint into.
  * }
  *
- * Note: a theme's `nav` block (layout, displayMode, accentBarEnabled, glow)
- * is a SUGGESTED default, applied when that theme is selected — but the
- * actually-active values still live independently in Appearance.layout /
- * Appearance.navDisplayMode / Appearance.accentBarEnabled in config.ini,
- * exactly like radius/font, so they can still be changed afterward without
- * switching themes. See LAYOUT_OPTIONS / DEFAULT_NAV / normalizeNav below.
+ * Note: a theme's `nav` block supplies layout, displayMode, accentBarEnabled
+ * and glow when that theme is selected. Layout and displayMode stay
+ * configurable in Appearance.layout / Appearance.navDisplayMode afterward;
+ * the accent flag belongs to the active theme, so switching themes adopts
+ * that theme's value. See LAYOUT_OPTIONS / DEFAULT_NAV / normalizeNav.
  *
  * IMPORTANT: keep this object's `colors` keys in sync with the --color-*
  * variables declared in src/assets/css/main.css. THEME_COLOR_KEYS below is

@@ -13,12 +13,10 @@
 const axios = require('axios')
 const { fetchUrlViaWindow, isAvailable } = require('../downloads/forumWindowFetch')
 const { isCloudflareChallenge } = require('../downloads/maskedResolver')
-// Endpoints live in a shipped file, not config.ini, so a stale user copy can't
-// point the check at a retired page. The remote config merges over the bundled one.
-const { getRemoteConfig } = require('../config/remoteConfig')
-// Merge over bundled (not replace): a partial remote file falls back per key.
+// Endpoints live in a shipped file, not config.ini or a remote fetch, so a
+// stale copy can't point the check at a retired page.
 function getLcTierEndpoints() {
-  return { ...require('../config/lcTier.json'), ...getRemoteConfig('lcTier.json') }
+  return require('../config/lcTier.json')
 }
 
 const SITES = {

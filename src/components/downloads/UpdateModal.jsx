@@ -1,4 +1,5 @@
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
+import { useEscapeKey } from '../../hooks/useEscapeKey.js'
 import HostIcon from './HostIcon.jsx'
 import { buildThreadUrl, threadUrlForGame } from './threadUrl.js'
 import { buildDownloadOptions } from './linkSections.js'
@@ -284,6 +285,8 @@ export default function UpdateModal({ game, open, onClose, onQueued, session = n
       setResolvingUrl('')
     }
   }
+
+  useEscapeKey(onClose, open)
 
   if (!open) return null
 

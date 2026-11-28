@@ -49,4 +49,15 @@ export const buildWishlistPayload = (game = {}) => {
   return payload
 }
 
+// Install state comes from the row's own fields: browse and collection tiles of
+// an installed title may carry no record id, so the flags are read as well.
+export const isGameInstalled = (game = {}) => {
+  const localRecordId = game.localRecordId ?? game.local_record_id ?? game.installedRecordId ?? null
+  return Boolean(localRecordId) || game.isInstalled === true || game.is_installed === 1 || game.is_installed === true || game.hasInstalledVersion === true
+}
+
+// The main process refuses a wishlist entry for an installed title, but an
+// existing entry must stay removable.
+export const canToggleWishlist = (game = {}) => game.isWishlisted === true || !isGameInstalled(game)
+
 export { WISHLIST_PAYLOAD_FIELDS }

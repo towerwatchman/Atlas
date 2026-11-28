@@ -125,6 +125,13 @@ const DOWNLOADS_INDEXES = [
   `CREATE INDEX IF NOT EXISTS idx_downloads_record ON downloads(record_id)`,
 ];
 
+// run() prepares only the first statement in a string, so the meta table needs
+// its own creation call before the marker is read.
+const DOWNLOADS_META_DDL = `CREATE TABLE IF NOT EXISTS downloads_meta (key TEXT PRIMARY KEY, value TEXT)`;
+// Versioned so a later ordering change gets a fresh key and cannot re-run this
+// migration over order the user has since saved.
+const COMPLETED_ORDER_KEY = "completed_order_v1";
+
 // States that mean "this item is finished with, one way or another".
 const TERMINAL_STATES = ["done", "canceled"];
 // States the queue runner is allowed to pick up.
@@ -217,6 +224,22 @@ const initializeDownloads = async () => {
   // simply have nothing to show, which the UI treats as "not stated".
   await run(`ALTER TABLE downloads ADD COLUMN build_label TEXT`).catch(() => {});
   for (const sql of DOWNLOADS_INDEXES) await run(sql);
+  await run(DOWNLOADS_META_DDL);
+  const orderMarker = await get(`SELECT value FROM downloads_meta WHERE key = ?`, [COMPLETED_ORDER_KEY]);
+  if (!orderMarker) {
+    // Legacy Completed rows were stored oldest-first; number them newest-first
+    // by completion time, falling back to the last update.
+    const terminal = await all(
+      `SELECT id FROM downloads
+        WHERE state IN (${TERMINAL_STATES.map(() => "?").join(", ")})
+        ORDER BY COALESCE(completed_at, updated_at, 0) DESC, id DESC`,
+      TERMINAL_STATES,
+    );
+    for (const [position, row] of terminal.entries()) {
+      await run(`UPDATE downloads SET queue_order = ? WHERE id = ?`, [position, row.id]);
+    }
+    await run(`INSERT INTO downloads_meta (key, value) VALUES (?, ?)`, [COMPLETED_ORDER_KEY, "1"]);
+  }
   // Anything the app was actively working on when it exited is not actually in
   // progress any more. Park it as paused, keeping received_bytes so a resume can
   // pick up with a Range request rather than starting over.
@@ -276,9 +299,9 @@ const enqueueDownload = async ({
   const clean = String(title || "").trim();
   if (!clean) return { success: false, error: "A title is required" };
 
-  // Appended to the end of the queue. MAX + 1 rather than COUNT so removing
-  // items never causes two rows to share a position.
-  const tail = await get(`SELECT COALESCE(MAX(queue_order), -1) + 1 AS next FROM downloads`);
+  // A new download runs first, so it takes a number ahead of the front rather
+  // than behind the tail. MIN - 1 keeps positions distinct after removals.
+  const tail = await get(`SELECT COALESCE(MIN(queue_order) - 1, 0) AS next FROM downloads`);
   const timestamp = now();
   // No URL means Atlas is not fetching this one — it is waiting for the file to
   // show up in the watch folder.
@@ -388,6 +411,13 @@ const reorderDownloads = async (ids = []) => {
   return { success: true };
 };
 
+// A row that finishes late takes the front slot so it shows up as the newest
+// entry in Completed. Cancellations never call this and keep their place.
+const moveDownloadToFront = async (id) => {
+  const next = await get(`SELECT COALESCE(MIN(queue_order) - 1, 0) AS next FROM downloads`);
+  return updateDownload(id, { queueOrder: next?.next || 0 });
+};
+
 const countActive = async () => {
   const row = await get(
     `SELECT COUNT(*) AS total FROM downloads
@@ -413,6 +443,7 @@ module.exports = {
   clearFinishedDownloads,
   claimNextQueued,
   reorderDownloads,
+  moveDownloadToFront,
   countActive,
   mapRow,
 };

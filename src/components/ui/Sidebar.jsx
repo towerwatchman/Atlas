@@ -1,15 +1,20 @@
-import { useState } from 'react'
+import { startTransition, useState } from 'react'
 import { getNavItems, parseIconParts, navItemIsActive } from './navItems.js'
 import { useTheme } from '../../theme/ThemeProvider.jsx'
 import ImporterSourceMenu from '../importer/ImporterSourceMenu.jsx'
+
+// Only view-switching destinations keep the accent bar after the pointer leaves.
+const VIEW_TABS = ['Library', 'Browse', 'Favorites', 'Collections', 'Downloads']
 
 const Sidebar = ({
   onToggleGameList, onCheckDbUpdates, onGoHome, onBrowseCatalog, onOpenWishlist,
   onToggleSearchSidebar, onOpenAbout, onOpenCollections, showGameList, libraryMode = 'local',
   browseAvailable, favoritesActive = false, collectionsActive = false,
+  onOpenDownloads, downloadsActive = false,
 }) => {
   const { navDisplayMode } = useTheme()
   const [selected, setSelected] = useState('Library')
+  const [hoveredItem, setHoveredItem] = useState(null)
   // Filters is a topnav-only shared nav item (see TopNav.jsx) — the left
   // rail already has its own inline SearchBox with a built-in filter
   // toggle, so it's left out here. About is NOT shown in the rail: it's
@@ -18,8 +23,19 @@ const Sidebar = ({
   // whether the nav is a top bar or this left rail.
   const items = getNavItems({
     onToggleGameList, onCheckDbUpdates, onBrowseCatalog, onOpenWishlist,
-    onToggleSearchSidebar, onOpenAbout, onOpenCollections, browseModeAvailable: browseAvailable,
+    onToggleSearchSidebar, onOpenAbout, onOpenCollections, onOpenDownloads,
+    browseModeAvailable: browseAvailable,
   }).filter((item) => item.name !== 'Filters' && item.name !== 'About')
+  // Destinations stay together at the top; the List toggle and utilities sit below a gap.
+  const mainItems = items.filter((item) => item.group === 'main')
+  const listItem = items.find((item) => item.name === 'List')
+  const utilityItems = items.filter((item) => item.group === 'utility')
+  const railItems = [
+    ...mainItems,
+    { name: 'Spacer', spacer: true },
+    ...(listItem ? [listItem] : []),
+    ...utilityItems,
+  ]
   const showIcon = navDisplayMode !== 'text'
   const showText = navDisplayMode !== 'icons'
 
@@ -30,18 +46,24 @@ const Sidebar = ({
 
   const handleClick = (item) => {
     setSelected(item.name)
-    if (item.name === 'Library' && onGoHome) onGoHome()
-    if (item.name === 'Settings') window.electronAPI.openSettings()
-    if (item.onClick) item.onClick()
+    // Defer the view swap so the rail can repaint its highlight before the
+    // heavier library rerender commits.
+    startTransition(() => {
+      if (item.name === 'Library' && onGoHome) onGoHome()
+      if (item.name === 'Settings') window.electronAPI.openSettings()
+      if (item.onClick) item.onClick()
+    })
   }
 
   return (
     <div className="w-navSize bg-primary flex flex-col items-center min-w-[60px] py-[1px] fixed top-[70px] bottom-[40px] z-50">
-      {items.map((item) => {
-        const isActive = navItemIsActive(item.name, { libraryMode, favoritesActive, collectionsActive, selected })
+      {railItems.map((item) => {
+        if (item.spacer) return <div key="spacer" className="flex-1" />
+        const isActive = navItemIsActive(item.name, { libraryMode, favoritesActive, collectionsActive, downloadsActive, selected })
+        const isViewTab = VIEW_TABS.includes(item.name)
         const buttonContent = (
           <>
-            <div className="absolute left-0 w-[3px] h-full bg-accent transition-opacity opacity-0 group-hover:opacity-100" />
+            <div className={`absolute left-0 w-[3px] h-full bg-accent transition-opacity ${hoveredItem === item.name || (isActive && isViewTab && (hoveredItem === null || !VIEW_TABS.includes(hoveredItem))) ? 'opacity-100' : 'opacity-0'}`} />
 
             {showIcon && (
               <svg
@@ -77,6 +99,8 @@ const Sidebar = ({
                   data-tour={item.name}
                   {...buttonProps}
                   onClick={toggle}
+                  onMouseEnter={() => setHoveredItem(item.name)}
+                  onMouseLeave={() => setHoveredItem(null)}
                 >
                   {buttonContent}
                 </button>
@@ -92,6 +116,8 @@ const Sidebar = ({
             aria-label={item.name}
             data-tour={item.name}
             onClick={() => handleClick(item)}
+            onMouseEnter={() => setHoveredItem(item.name)}
+            onMouseLeave={() => setHoveredItem(null)}
           >
             {buttonContent}
           </div>

@@ -107,10 +107,16 @@ const buildDefaultConfig = (dataDir = '') => ({
     checkForAppUpdatesOnStartup: true,
     appUpdateBranch: null,
     showGameList: true,
+    showFilterSidebar: false,
     sidePanelMode: 'games',
     browserId: 'default',
     customBrowserPaths: [],
     detailClickSearchMode: 'browse',
+  },
+  // Stored as one JSON string: config.ini has no nested tables, so the
+  // renderer parses this into per-action combos and writes it back as JSON.
+  Shortcuts: {
+    bindings: '',
   },
   // Per-channel record of the app version last INSTALLED from each update
   // channel. The updater compares the active channel's latest release against

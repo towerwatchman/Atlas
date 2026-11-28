@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { useEscapeKey } from '../../hooks/useEscapeKey.js'
 import {
   PERSONAL_RATING_CATEGORIES,
   RATING_MAX,
@@ -43,6 +44,8 @@ export default function RatingModal({
     prevOpenRef.current = Boolean(open)
     prevTitleRef.current = title
   }, [open, title, ratings])
+
+  useEscapeKey(onCancel, open)
 
   if (!open) return null
 

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import Interface from './Interface.jsx'
 import Library from './Library.jsx'
 import ImportSources from './ImportSources.jsx'
@@ -9,11 +9,22 @@ import Database from './Database.jsx'
 import ExtensionSettings from './ExtensionSettings.jsx'
 import EmulatorLauncher from './EmulatorLauncher.jsx'
 import BlacklistSettings from './BlacklistSettings.jsx'
+import ShortcutsSettings from './ShortcutsSettings.jsx'
 import { settingsIcons } from './settingsIcons.js'
 import WelcomeTour from '../ui/WelcomeTour.jsx'
+import {
+  buildShortcutIndex, comboFromEvent, readBindings, settingsPageActionId,
+} from '../../lib/keyboardShortcuts.js'
 
 const visibleSettingsTabs = settingsIcons.filter((item) => !item.hidden)
 const defaultSettingsTab = visibleSettingsTabs[0]?.name || "Interface"
+const SETTINGS_PAGE_PREFIX = settingsPageActionId('')
+const isVisibleTab = (tab) => visibleSettingsTabs.some((item) => item.name === tab)
+const isTextInputTarget = (target) => {
+  if (!target) return false
+  const tagName = target.tagName?.toLowerCase()
+  return tagName === 'input' || tagName === 'textarea' || tagName === 'select' || target.isContentEditable
+}
 
 // Ordered settings-tour steps. Each optionally names a `tab` that must be the
 // active settings section for its target to exist in the DOM; the tour host
@@ -35,6 +46,8 @@ const Settings = () => {
   const [selected, setSelected] = useState(defaultSettingsTab);
   const [isMaximized, setIsMaximized] = useState(false);
   const [tourOpen, setTourOpen] = useState(false);
+  const [shortcutBindings, setShortcutBindings] = useState(() => readBindings({}));
+  const shortcutIndex = useMemo(() => buildShortcutIndex(shortcutBindings), [shortcutBindings]);
   const activeSelected = visibleSettingsTabs.some((item) => item.name === selected)
     ? selected
     : defaultSettingsTab;
@@ -70,6 +83,55 @@ const Settings = () => {
     return () => { if (typeof off === 'function') off(); };
   }, []);
 
+  // A shortcut can arrive before this window opens (URL) or while it is open (channel).
+  useEffect(() => {
+    let tab = null;
+    try { tab = new URLSearchParams(window.location.search).get('tab') } catch { tab = null; }
+    if (isVisibleTab(tab)) setSelected(tab);
+  }, []);
+
+  useEffect(() => {
+    const off = window.electronAPI.onSettingsTab?.((tab) => {
+      if (isVisibleTab(tab)) setSelected(tab);
+    });
+    return () => { if (typeof off === 'function') off(); };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    Promise.resolve(window.electronAPI?.getConfig?.()).then((config) => {
+      if (active) setShortcutBindings(readBindings(config));
+    }).catch(() => {});
+    const off = window.electronAPI?.onShortcutsChanged?.((bindings) => {
+      setShortcutBindings(readBindings(bindings));
+    });
+    return () => {
+      active = false;
+      if (typeof off === 'function') off();
+    };
+  }, []);
+
+  useEffect(() => {
+    const onKeyDown = (event) => {
+      if (event.repeat || event.defaultPrevented || tourOpen || isTextInputTarget(event.target)) return;
+      const combo = comboFromEvent(event);
+      if (!combo) return;
+      const actionId = shortcutIndex[combo];
+      if (actionId === 'quit') {
+        event.preventDefault();
+        window.electronAPI.quitApp?.();
+        return;
+      }
+      if (!actionId?.startsWith(SETTINGS_PAGE_PREFIX)) return;
+      const tab = actionId.slice(SETTINGS_PAGE_PREFIX.length);
+      if (!isVisibleTab(tab)) return;
+      event.preventDefault();
+      setSelected(tab);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [shortcutIndex, tourOpen]);
+
   useEffect(() => {
     if (selected !== activeSelected) setSelected(activeSelected);
   }, [activeSelected, selected]);
@@ -96,6 +158,7 @@ const Settings = () => {
         return <Database />;
       case "Extension":
         return <ExtensionSettings />;
+      case "Shortcuts": return <ShortcutsSettings />;
       default:
         return <Interface />;
     }
